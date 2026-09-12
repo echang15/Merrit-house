@@ -56,6 +56,16 @@ class ApiTests(unittest.TestCase):
     def post(self, url, payload):
         return self.client.post(url, data=json.dumps(payload), content_type="application/json")
 
+    def test_index_ships_splash_screen(self):
+        page = self.client.get("/")
+        self.assertEqual(page.status_code, 200)
+        body = page.get_data(as_text=True)
+        self.assertIn('id="splash"', body)
+        self.assertIn('class="watermark"', body)
+        img = self.client.get("/static/img/splash.jpg")
+        self.assertEqual(img.status_code, 200)
+        self.assertEqual(img.mimetype, "image/jpeg")
+
     def test_state_has_empty_taps(self):
         data = self.client.get("/api/state").get_json()
         self.assertEqual(data["house"], "Test House")

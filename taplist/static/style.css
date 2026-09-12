@@ -74,6 +74,15 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
   to   { transform: translate3d(3%, 2%, 0) rotate(4deg); }
 }
 
+/* The house crest, barely there, behind the tap cards. */
+.watermark {
+  position: fixed; inset: 0;
+  background: url("/static/img/splash.jpg") center / cover no-repeat;
+  opacity: 0.07;
+  pointer-events: none;
+  z-index: 0;
+}
+
 .app {
   position: relative;
   z-index: 1;
@@ -501,3 +510,43 @@ html.osk-open .sheet-foot { display: none; }
   animation: rise 0.25s ease;
 }
 .toast.error { border-color: rgba(229, 83, 61, 0.5); color: #ffb3a6; }
+
+/* ---------- splash ---------- */
+
+/* Full-screen crest shown on boot and again after the board sits untouched
+   for a while. Any tap dismisses it. */
+.splash {
+  position: fixed; inset: 0; z-index: 100;
+  margin: 0; padding: 0; border: 0;
+  background: var(--bg);
+  display: block;
+  cursor: pointer;
+  opacity: 1;
+  transition: opacity 0.45s ease;
+}
+.splash[hidden] { display: none; }
+.splash.leaving { opacity: 0; pointer-events: none; }
+.splash-img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover; object-position: center;
+  pointer-events: none;
+}
+.splash-hint {
+  position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
+  padding: 10px 18px; border-radius: 999px;
+  background: rgba(15, 12, 9, 0.6); backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 224, 178, 0.2);
+  color: var(--ink); font-size: 14px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: breathe 2.8s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .splash { transition: none; }
+  .splash-hint { animation: none; }
+}

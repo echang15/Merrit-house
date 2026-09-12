@@ -9,12 +9,16 @@
   const sheetPanel = $(".sheet-panel");
   const oskEl = $("#osk");
   const toastEl = $("#toast");
+  const splashEl = $("#splash");
 
   const POLL_MS = 4000;
   const IDLE_MS = 90000;
+  // Bring the splash screen back after the board sits untouched this long (0 = never).
+  const SPLASH_RETURN_MS = 5 * 60 * 1000;
 
   let state = { version: 0, taps: [], house: "", tap_count: 3 };
   let idleTimer = null;
+  let splashTimer = null;
   let searchSeq = 0;
 
   // ---------- utils ----------
@@ -222,6 +226,35 @@
   sheet.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) closeSheet(); });
   sheet.addEventListener("pointerdown", bumpIdle, true);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !sheet.hidden) closeSheet(); });
+
+  // ---------- splash ----------
+
+  function showSplash() {
+    if (!splashEl.hidden) return;
+    closeSheet();
+    clearTimeout(splashTimer);
+    splashEl.classList.remove("leaving");
+    splashEl.hidden = false;
+  }
+  function hideSplash() {
+    if (splashEl.hidden || splashEl.classList.contains("leaving")) return;
+    splashEl.classList.add("leaving");
+    const done = () => {
+      if (!splashEl.classList.contains("leaving")) return;
+      splashEl.classList.remove("leaving");
+      splashEl.hidden = true;
+    };
+    splashEl.addEventListener("transitionend", done, { once: true });
+    setTimeout(done, 600); // in case transitionend never fires (reduced motion, hidden tab)
+    armSplash();
+  }
+  function armSplash() {
+    clearTimeout(splashTimer);
+    if (SPLASH_RETURN_MS > 0) splashTimer = setTimeout(showSplash, SPLASH_RETURN_MS);
+  }
+  splashEl.addEventListener("click", hideSplash);
+  document.addEventListener("pointerdown", () => { if (splashEl.hidden) armSplash(); }, true);
+  document.addEventListener("keydown", () => { if (splashEl.hidden) armSplash(); }, true);
 
   const closeBtn = () => html`<button class="icon-btn" type="button" data-close aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
   const backBtn = (action) => html`<button class="icon-btn" type="button" data-action="${action}" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>`;

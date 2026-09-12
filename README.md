@@ -16,6 +16,9 @@ taps from the couch.
 
 ## Features
 
+- **Splash screen** – the house crest fills the screen on boot; one tap
+  reveals the board. It comes back after five minutes without a touch. The
+  same crest sits faintly behind the tap cards.
 - **Board** – three big cards (configurable), label artwork with a blurred glow,
   style pill, ABV/IBU, description and how long it's been on tap. Live-updates
   when anything changes from another device.
@@ -112,6 +115,12 @@ variables in your shell:
 | `TAPLIST_UNTAPPD_CLIENT_ID` / `TAPLIST_UNTAPPD_CLIENT_SECRET` | unset | Enables Untappd search (better descriptions and labels) |
 | `TAPLIST_DISABLE_OFF` | unset | Set to `1` to turn off Open Food Facts search |
 | `TAPLIST_SEARCH_TIMEOUT` | `8` | Seconds to wait for an online search |
+
+**Splash and watermark.** Both use `taplist/static/img/splash.jpg`; replace
+the file to change them. The watermark strength is `.watermark { opacity }` in
+`taplist/static/style.css`, and how long the board waits before showing the
+splash again is `SPLASH_RETURN_MS` at the top of `taplist/static/app.js`
+(set it to `0` to only show the splash on boot).
 
 **Fonts.** The UI uses the system font stack. Drop a `display.woff2` (or
 `display.ttf`) into `taplist/static/fonts/` and the whole UI switches to it.
