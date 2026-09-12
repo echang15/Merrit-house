@@ -40,8 +40,6 @@
 @media (min-width: 1800px) and (min-height: 1000px) { :root { --ui-scale: 2.25; } }
 @media (min-width: 2400px) and (min-height: 1300px) { :root { --ui-scale: 3; } }
 body { zoom: var(--ui-scale); }
-/* 16:10 panels (10" Touch Display 2) have spare height: show more of the tasting note. */
-@media (min-width: 1800px) and (min-height: 1000px) { .tap-desc { -webkit-line-clamp: 5; } }
 
 html, body {
   margin: 0;
@@ -160,7 +158,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 
 .tap-art {
   position: relative;
-  flex: 0 0 46%;
+  flex: 0 0 43%;
   min-height: 120px;
   overflow: hidden;
   background: #17120e;
@@ -201,6 +199,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
   padding: 12px 16px 14px;
   display: flex; flex-direction: column; gap: 6px;
 }
+.tap-body > * { flex: none; }
 .tap-name {
   margin: 0;
   font-size: clamp(18px, 2.6vw, 26px);
@@ -222,8 +221,9 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 .tap-desc {
   margin: 4px 0 0; color: var(--ink-2); font-size: 13px; line-height: 1.45;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  /* app.js raises/lowers the clamp to however many whole lines fit the card */
 }
-.tap-since { margin-top: auto; padding-top: 6px; font-size: 11px; color: var(--ink-3); letter-spacing: 0.06em; text-transform: uppercase; }
+.tap-since { margin-top: auto; padding-top: 4px; font-size: 11px; color: var(--ink-3); letter-spacing: 0.06em; text-transform: uppercase; }
 
 .tap.empty { justify-content: center; align-items: center; border-style: dashed; background: rgba(255, 244, 224, 0.02); box-shadow: none; }
 .tap.empty .tap-badge { position: static; margin-bottom: 18px; }

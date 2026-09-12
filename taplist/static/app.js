@@ -133,7 +133,30 @@
         </div>
       </button>`;
     }).join("");
+    fitDescriptions();
   }
+
+  // Show as many whole lines of the tasting note as the card has room for.
+  function fitDescriptions() {
+    board.querySelectorAll(".tap-body").forEach((body) => {
+      const desc = body.querySelector(".tap-desc");
+      if (!desc) return;
+      const bodyStyle = getComputedStyle(body);
+      const descStyle = getComputedStyle(desc);
+      const lineHeight = parseFloat(descStyle.lineHeight) || 19;
+      const gap = parseFloat(bodyStyle.rowGap) || 0;
+      let used = parseFloat(bodyStyle.paddingTop) + parseFloat(bodyStyle.paddingBottom) + parseFloat(descStyle.marginTop);
+      for (const child of body.children) {
+        if (child !== desc) used += child.offsetHeight;
+        used += gap;
+      }
+      used -= gap;
+      const lines = Math.floor((body.clientHeight - used) / lineHeight);
+      desc.style.webkitLineClamp = String(Math.max(1, lines));
+    });
+  }
+  let resizeTimer = null;
+  window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(fitDescriptions, 150); });
 
   async function loadState() {
     try {
