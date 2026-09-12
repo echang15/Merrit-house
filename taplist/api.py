@@ -152,7 +152,7 @@ def create_app(data_dir=None, tap_count=None, providers=None, house_name=None):
     # -- pages & files -------------------------------------------------------
 
     @app.route("/")
-    @app.route("/admin")
+    @app.route("/admin", strict_slashes=False)
     def index():
         # Same single-page app; the front end reads the path to decide whether
         # to show the read-only board or the admin controls.

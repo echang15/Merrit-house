@@ -65,6 +65,8 @@ class ApiTests(unittest.TestCase):
         admin = self.client.get("/admin")
         self.assertEqual(admin.status_code, 200)
         self.assertEqual(admin.get_data(as_text=True), body)  # same app, mode picked client-side
+        self.assertEqual(self.client.get("/admin/").status_code, 200)
+        self.assertEqual(self.client.get("/api/metrics").status_code, 200)
         img = self.client.get("/static/img/splash.jpg")
         self.assertEqual(img.status_code, 200)
         self.assertEqual(img.mimetype, "image/jpeg")
