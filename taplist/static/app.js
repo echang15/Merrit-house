@@ -13,6 +13,9 @@
   const splashNet = $("#splash-net");
   // The kiosk on the Pi opens the app at localhost; phones and laptops come in over the LAN.
   const IS_KIOSK = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  // "/" is the read-only board for guests and the kiosk; "/admin" has every control.
+  const ADMIN = location.pathname.replace(/\/+$/, "") === "/admin";
+  document.documentElement.classList.toggle("admin", ADMIN);
 
   const POLL_MS = 4000;
   const IDLE_MS = 90000;
@@ -262,12 +265,12 @@
   function renderSplashNet() {
     const urls = (state.urls || []).filter(Boolean);
     if (!IS_KIOSK || !urls.length) { splashNet.hidden = true; return; }
-    splashNet.innerHTML = "Manage from your phone at " + urls.map((u) => html`<b>${esc(u.replace(/\/$/, ""))}</b>`).join(" or ");
+    splashNet.innerHTML = "Manage the taps from your phone at " + urls.map((u) => html`<b>${esc(u.replace(/\/$/, "") + "/admin")}</b>`).join(" or ");
     splashNet.hidden = false;
   }
 
   function showSplash() {
-    if (!splashEl.hidden) return;
+    if (ADMIN || !splashEl.hidden) return;
     closeSheet();
     clearTimeout(splashTimer);
     splashEl.classList.remove("leaving");
@@ -287,8 +290,9 @@
   }
   function armSplash() {
     clearTimeout(splashTimer);
-    if (SPLASH_RETURN_MS > 0) splashTimer = setTimeout(showSplash, SPLASH_RETURN_MS);
+    if (!ADMIN && SPLASH_RETURN_MS > 0) splashTimer = setTimeout(showSplash, SPLASH_RETURN_MS);
   }
+  if (ADMIN) { splashEl.hidden = true; }
   splashEl.addEventListener("click", hideSplash);
   document.addEventListener("pointerdown", () => { if (splashEl.hidden) armSplash(); }, true);
   document.addEventListener("keydown", () => { if (splashEl.hidden) armSplash(); }, true);
@@ -298,7 +302,41 @@
 
   // ---------- tap menu ----------
 
+  // Guests get the details only; the admin page adds the controls.
+  function openTapDetails(number) {
+    const tap = state.taps.find((t) => t.number === number);
+    if (!tap || !tap.beer) return;
+    const b = tap.beer;
+    openSheet(html`
+      <div class="sheet-head">
+        <div style="flex:1;min-width:0">
+          <div class="sheet-sub">Tap ${number}</div>
+          <h2 class="sheet-title">${esc(b.name)}</h2>
+        </div>
+        ${closeBtn()}
+      </div>
+      <div class="sheet-body">
+        <div class="menu-hero">
+          <div class="menu-hero-art" data-art>${artHTML(b, { badge: false })}</div>
+          <div class="menu-hero-text">
+            <h3>${esc(b.brewery || "")}</h3>
+            <p>${[b.style, b.abv != null ? fmtAbv(b.abv) + " ABV" : "", b.ibu != null ? fmtIbu(b.ibu) + " IBU" : ""].filter(Boolean).map(esc).join(" · ")}</p>
+            <p style="margin-top:6px;font-size:12px;color:var(--ink-3)">${esc(ago(tap.tapped_at))}</p>
+          </div>
+        </div>
+        ${b.description ? html`<p style="color:var(--ink-2);font-size:14px;line-height:1.5;margin:0 0 14px;white-space:pre-line">${esc(b.description)}</p>` : ""}
+        <div class="menu-section">
+          <div class="section-label">House score</div>
+          <div class="score-row">
+            ${starsHTML(b.rating, { size: "lg" })}
+            <span class="score-text">${b.rating ? `${b.rating} / 5` : "Not scored yet"}</span>
+          </div>
+        </div>
+      </div>`, { compact: true });
+  }
+
   function openTapMenu(number) {
+    if (!ADMIN) return openTapDetails(number);
     const tap = state.taps.find((t) => t.number === number);
     if (!tap) return;
     const b = tap.beer;
@@ -754,6 +792,7 @@
       grid.innerHTML = beers.map((b) => {
         const key = ++resultHTML.seq;
         resultHTML.cache[key] = b;
+        b.__archived = true;
         const when = b.last_untapped ? `Last poured ${fmtDate(b.last_untapped)}` : `Added ${fmtDate(b.created_at)}`;
         const days = Math.round(b.seconds_on_tap / 86400);
         return html`<button class="archive-card" type="button" data-action="archive-pick" data-key="${key}">
@@ -767,6 +806,38 @@
         </button>`;
       }).join("");
     } catch (err) { toast(err.message, true); }
+  }
+
+  // Read-only card for a beer that isn't pouring right now (archive, stats).
+  function openBeerDetails(b, back) {
+    const days = b.seconds_on_tap ? fmtDays(b.seconds_on_tap) : null;
+    openSheet(html`
+      <div class="sheet-head">
+        ${back ? backBtn(back) : ""}
+        <div style="flex:1;min-width:0">
+          <div class="sheet-sub">${b.last_untapped ? `Last poured ${esc(fmtDate(b.last_untapped))}` : "In the cellar"}</div>
+          <h2 class="sheet-title">${esc(b.name)}</h2>
+        </div>
+        ${closeBtn()}
+      </div>
+      <div class="sheet-body">
+        <div class="menu-hero">
+          <div class="menu-hero-art" data-art>${artHTML(b, { badge: false })}</div>
+          <div class="menu-hero-text">
+            <h3>${esc(b.brewery || "")}</h3>
+            <p>${[b.style, b.abv != null ? fmtAbv(b.abv) + " ABV" : "", b.ibu != null ? fmtIbu(b.ibu) + " IBU" : ""].filter(Boolean).map(esc).join(" · ")}</p>
+            ${b.times_tapped ? html`<p style="margin-top:6px;font-size:12px;color:var(--ink-3)">On tap ${b.times_tapped}× · ${days} in total</p>` : ""}
+          </div>
+        </div>
+        ${b.description ? html`<p style="color:var(--ink-2);font-size:14px;line-height:1.5;margin:0 0 14px;white-space:pre-line">${esc(b.description)}</p>` : ""}
+        <div class="menu-section">
+          <div class="section-label">House score</div>
+          <div class="score-row">
+            ${starsHTML(b.rating, { size: "lg" })}
+            <span class="score-text">${b.rating ? `${b.rating} / 5` : "Not scored yet"}</span>
+          </div>
+        </div>
+      </div>`, { compact: true });
   }
 
   // ---------- stats ----------
@@ -897,11 +968,13 @@
 
   board.addEventListener("click", (e) => {
     const card = e.target.closest("[data-tap]");
-    if (card) openTapMenu(Number(card.dataset.tap));
+    if (!card) return;
+    if (!ADMIN && card.classList.contains("empty")) return;
+    openTapMenu(Number(card.dataset.tap));
   });
   $("#btn-archive").addEventListener("click", openArchive);
   $("#btn-stats").addEventListener("click", openStats);
-  $("#btn-add").addEventListener("click", () => openSearch(null));
+  $("#btn-add").addEventListener("click", () => { if (ADMIN) openSearch(null); });
 
   sheet.addEventListener("click", (e) => {
     const el = e.target.closest("[data-action]");
@@ -929,6 +1002,7 @@
         const b = resultHTML.cache[el.dataset.key];
         const onTap = state.taps.find((x) => x.beer && x.beer.id === b.id);
         if (onTap) openTapMenu(onTap.number);
+        else if (!ADMIN) openBeerDetails(b, el.dataset.back || "archive");
         else openEditor({ ...b, beer_id: b.id }, null, { back: el.dataset.back || "archive", fromLibrary: true });
         break;
       }

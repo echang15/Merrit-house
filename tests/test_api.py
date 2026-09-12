@@ -62,6 +62,9 @@ class ApiTests(unittest.TestCase):
         body = page.get_data(as_text=True)
         self.assertIn('id="splash"', body)
         self.assertIn('class="watermark"', body)
+        admin = self.client.get("/admin")
+        self.assertEqual(admin.status_code, 200)
+        self.assertEqual(admin.get_data(as_text=True), body)  # same app, mode picked client-side
         img = self.client.get("/static/img/splash.jpg")
         self.assertEqual(img.status_code, 200)
         self.assertEqual(img.mimetype, "image/jpeg")

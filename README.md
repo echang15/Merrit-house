@@ -19,6 +19,10 @@ taps from the couch.
 - **Splash screen** – the house crest fills the screen on boot; one tap
   reveals the board. It comes back after five minutes without a touch. The
   same crest sits faintly behind the tap cards.
+- **Read-only board, separate admin page** – `/` is for guests and the
+  touchscreen: tap a card to read about the beer, browse the archive and the
+  stats, nothing can be changed. `/admin` is the same app with the controls:
+  change what's on tap, edit, score, kick, add and delete.
 - **Board** – three big cards (configurable), label artwork with a blurred glow,
   style pill, ABV/IBU, description and how long it's been on tap. Live-updates
   when anything changes from another device.
@@ -104,14 +108,19 @@ gets the same board and the same editing controls as the touchscreen. There is
 no login; anyone on your home network can change the taps.
 
 - **Address.** The kiosk's splash screen shows it, and the installer prints
-  it: `http://<pi-ip>:8080/` or `http://<hostname>.local:8080/` (the Pi's
-  default hostname is `raspberrypi`, so `http://raspberrypi.local:8080/`; the
-  `.local` name needs mDNS, which Pi OS ships and phones support out of the box).
-  Give the Pi a fixed IP in your router if you want the numeric address to
-  stay put.
-- **Editing.** Tap a card to change what's on that tap, edit its details, upload
-  a photo of the can, or kick it. The **+** button adds a beer, the box icon is
-  the archive. Every change shows up on the touchscreen within a few seconds.
+  it: `http://<pi-ip>:8080/admin` or `http://<hostname>.local:8080/admin` (the
+  Pi's default hostname is `raspberrypi`, so `http://raspberrypi.local:8080/admin`;
+  the `.local` name needs mDNS, which Pi OS ships and phones support out of
+  the box). Give the Pi a fixed IP in your router if you want the numeric
+  address to stay put. Without `/admin` you get the same read-only board the
+  touchscreen shows; the gear icon in its top bar jumps to the admin page.
+- **Editing.** On the admin page, tap a card to change what's on that tap,
+  score it, edit its details, upload a photo of the can, or kick it. The **+**
+  button adds a beer, the box icon is the archive. Every change shows up on
+  the touchscreen within a few seconds.
+- **No password.** Anyone on your Wi-Fi can open `/admin`; the split is there
+  to keep guests and the touchscreen from changing things by accident, not to
+  keep people out.
 - **Keyboard.** Phones, tablets and laptops use their own keyboard. The kiosk's
   own on-screen keyboard only defaults on for the touchscreen itself; the
   keyboard icon in any editor toggles it either way.

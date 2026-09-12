@@ -121,6 +121,20 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 .topbar-right { display: flex; align-items: center; gap: 8px; }
 .clock { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 15px; margin-right: 6px; letter-spacing: 0.04em; }
 
+/* Two modes from one page: / is the read-only board, /admin has the controls. */
+html:not(.admin) .admin-only { display: none !important; }
+html.admin .viewer-only { display: none !important; }
+a.icon-btn { text-decoration: none; }
+.admin-badge {
+  font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; font-weight: 800;
+  color: var(--amber-2); border: 1px solid rgba(245, 165, 36, 0.4); border-radius: 999px;
+  padding: 4px 9px; margin-right: 4px; white-space: nowrap;
+}
+html:not(.admin) .tap.empty { pointer-events: none; }
+html:not(.admin) .tap-empty-plus { display: none; }
+.detail-meta { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0 10px; }
+.detail-since { color: var(--ink-3); font-size: 12px; letter-spacing: 0.04em; margin-top: 8px; }
+
 .icon-btn {
   width: 46px; height: 46px; border-radius: 14px;
   border: 1px solid var(--card-border);
