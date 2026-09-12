@@ -10,6 +10,9 @@
   const oskEl = $("#osk");
   const toastEl = $("#toast");
   const splashEl = $("#splash");
+  const splashNet = $("#splash-net");
+  // The kiosk on the Pi opens the app at localhost; phones and laptops come in over the LAN.
+  const IS_KIOSK = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
 
   const POLL_MS = 4000;
   const IDLE_MS = 90000;
@@ -132,6 +135,7 @@
     document.documentElement.style.setProperty("--taps", state.tap_count || state.taps.length || 3);
     $("#house-name").textContent = state.house || "On Tap";
     document.title = `${state.house || "On Tap"} · On Tap`;
+    renderSplashNet();
     board.innerHTML = state.taps.map((tap) => {
       const b = tap.beer;
       if (!b) {
@@ -228,6 +232,14 @@
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !sheet.hidden) closeSheet(); });
 
   // ---------- splash ----------
+
+  // On the kiosk, tell people where to open the app on their phone.
+  function renderSplashNet() {
+    const urls = (state.urls || []).filter(Boolean);
+    if (!IS_KIOSK || !urls.length) { splashNet.hidden = true; return; }
+    splashNet.innerHTML = "Manage from your phone at " + urls.map((u) => html`<b>${esc(u.replace(/\/$/, ""))}</b>`).join(" or ");
+    splashNet.hidden = false;
+  }
 
   function showSplash() {
     if (!splashEl.hidden) return;
@@ -726,10 +738,13 @@
       ["hide", "&", ".", "space", ",", "go"],
     ],
     init() {
+      // Default on only for the Pi's own touchscreen. Phones, tablets and laptops
+      // on the network use their own keyboards; the toggle in the sheet header
+      // overrides either way and is remembered per browser.
       const stored = localStorage.getItem("osk");
       const coarse = window.matchMedia("(pointer: coarse)").matches;
       const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-      this.enabled = stored != null ? stored === "1" : coarse && !mobile;
+      this.enabled = stored != null ? stored === "1" : IS_KIOSK && coarse && !mobile;
       this.render();
       oskEl.addEventListener("pointerdown", (e) => {
         const key = e.target.closest(".osk-key");

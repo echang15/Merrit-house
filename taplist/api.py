@@ -2,6 +2,7 @@
 
 import logging
 import os
+import socket
 import time
 
 from flask import Flask, jsonify, request, send_from_directory, abort
@@ -13,6 +14,37 @@ from .providers import providers_from_env, search_all, find_brewery_logos
 log = logging.getLogger(__name__)
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+
+_lan_cache = {"at": 0.0, "addrs": []}
+
+
+def lan_addresses(ttl=60):
+    """Best-effort list of names/addresses this machine answers to on the LAN.
+
+    The LAN IP is found by asking the kernel which interface would route to a
+    public address (no packet is sent). The `<hostname>.local` name works on
+    Pi OS and most home networks via mDNS (avahi / Bonjour).
+    """
+    now = time.time()
+    if now - _lan_cache["at"] < ttl:
+        return list(_lan_cache["addrs"])
+    addrs = []
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.connect(("10.255.255.255", 1))
+            ip = sock.getsockname()[0]
+        finally:
+            sock.close()
+        if ip and not ip.startswith("127."):
+            addrs.append(ip)
+    except OSError:
+        pass
+    host = socket.gethostname().split(".")[0].strip().lower()
+    if host and host != "localhost":
+        addrs.append(host + ".local")
+    _lan_cache.update(at=now, addrs=addrs)
+    return list(addrs)
 
 
 def create_app(data_dir=None, tap_count=None, providers=None, house_name=None):
@@ -72,11 +104,18 @@ def create_app(data_dir=None, tap_count=None, providers=None, house_name=None):
         beer = db.update_beer(beer_id, {url_key: url})
         return ensure_label(beer, kinds=(kind,))
 
+    def lan_urls():
+        """Addresses phones on the same network can open this app at."""
+        port = request.host.rpartition(":")[2] if ":" in request.host else ""
+        suffix = f":{port}" if port and port != "80" else ""
+        return [f"http://{a}{suffix}/" for a in lan_addresses()]
+
     def state():
         return {
             "version": db.version(),
             "house": house_name,
             "tap_count": tap_count,
+            "urls": lan_urls(),
             "taps": [
                 {"number": t["number"], "tapped_at": t["tapped_at"], "beer": with_label(t["beer"])}
                 for t in db.taps()

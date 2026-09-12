@@ -533,7 +533,7 @@ html.osk-open .sheet-foot { display: none; }
   pointer-events: none;
 }
 .splash-hint {
-  position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
+  position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%);
   padding: 10px 18px; border-radius: 999px;
   background: rgba(15, 12, 9, 0.6); backdrop-filter: blur(6px);
   border: 1px solid rgba(255, 224, 178, 0.2);
@@ -542,6 +542,15 @@ html.osk-open .sheet-foot { display: none; }
   pointer-events: none;
   animation: breathe 2.8s ease-in-out infinite;
 }
+.splash-net {
+  position: absolute; left: 0; right: 0; bottom: 14px;
+  text-align: center;
+  color: var(--ink-2); font-size: 12px; letter-spacing: 0.06em;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+.splash-net[hidden] { display: none; }
+.splash-net b { color: var(--amber-2); font-weight: 700; }
 @keyframes breathe {
   0%, 100% { opacity: 0.55; }
   50% { opacity: 1; }

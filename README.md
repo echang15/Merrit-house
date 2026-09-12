@@ -74,8 +74,8 @@ The installer:
    logs in (XDG autostart, plus labwc / wayfire autostart on Bookworm);
 4. disables screen blanking with `raspi-config`.
 
-After the reboot the board fills the screen. From any phone on the same network,
-open `http://<pi-ip>:8080/` to manage it (the installer prints the address).
+After the reboot the board fills the screen. See **Manage it from your phone**
+below for opening the same app from any other device on your Wi-Fi.
 
 Useful commands:
 
@@ -87,6 +87,27 @@ sudo systemctl restart taplist     # after editing the code or taplist.env
 
 If the Pi is set to boot to the console instead of the desktop, enable desktop
 autologin with `sudo raspi-config` → System Options → Boot / Auto Login.
+
+## Manage it from your phone
+
+The app listens on every network interface, so any browser on the same Wi-Fi
+gets the same board and the same editing controls as the touchscreen. There is
+no login; anyone on your home network can change the taps.
+
+- **Address.** The kiosk's splash screen shows it, and the installer prints
+  it: `http://<pi-ip>:8080/` or `http://<hostname>.local:8080/` (the Pi's
+  default hostname is `raspberrypi`, so `http://raspberrypi.local:8080/`; the
+  `.local` name needs mDNS, which Pi OS ships and phones support out of the box).
+  Give the Pi a fixed IP in your router if you want the numeric address to
+  stay put.
+- **Editing.** Tap a card to change what's on that tap, edit its details, upload
+  a photo of the can, or kick it. The **+** button adds a beer, the box icon is
+  the archive. Every change shows up on the touchscreen within a few seconds.
+- **Keyboard.** Phones, tablets and laptops use their own keyboard. The kiosk's
+  own on-screen keyboard only defaults on for the touchscreen itself; the
+  keyboard icon in any editor toggles it either way.
+- **Home-screen shortcut.** In Safari or Chrome, share → *Add to Home Screen*
+  gives you a full-screen app icon.
 
 ### Touch Display 2 orientation
 
@@ -109,6 +130,7 @@ variables in your shell:
 | Variable | Default | What it does |
 |---|---|---|
 | `TAPLIST_HOUSE` | `Merrit House` | Name shown at the top of the board |
+| `TAPLIST_HOST` | `0.0.0.0` | Interface to listen on (`127.0.0.1` to allow only the Pi itself) |
 | `TAPLIST_TAPS` | `3` | Number of taps |
 | `TAPLIST_DATA` | `./data` | Where the SQLite database and cached labels live |
 | `TAPLIST_PORT` | `8080` | Port to listen on |

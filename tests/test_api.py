@@ -66,6 +66,17 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(img.status_code, 200)
         self.assertEqual(img.mimetype, "image/jpeg")
 
+    def test_state_lists_lan_urls(self):
+        from taplist import api as api_mod
+        api_mod._lan_cache.update(at=0.0, addrs=[])
+        with mock.patch.object(api_mod.socket, "gethostname", return_value="taproom.lan"):
+            data = self.client.get("/api/state", base_url="http://192.168.1.5:8080").get_json()
+        self.assertIn("http://taproom.local:8080/", data["urls"])
+        for url in data["urls"]:
+            self.assertTrue(url.startswith("http://"))
+            self.assertNotIn("127.0.0.1", url)
+        api_mod._lan_cache.update(at=0.0, addrs=[])
+
     def test_state_has_empty_taps(self):
         data = self.client.get("/api/state").get_json()
         self.assertEqual(data["house"], "Test House")
