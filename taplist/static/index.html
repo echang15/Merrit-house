@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0f0c09">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>On Tap</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f0c09'/%3E%3Cpath d='M20 22h22v28a4 4 0 0 1-4 4H24a4 4 0 0 1-4-4z' fill='%23f5a524'/%3E%3Cpath d='M20 20c0-6 22-6 22 0v4H20z' fill='%23fff3d6'/%3E%3Cpath d='M42 28h6a4 4 0 0 1 4 4v8a4 4 0 0 1-4 4h-6' fill='none' stroke='%23f5a524' stroke-width='4'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="ambient" aria-hidden="true"></div>
+
+  <div id="app" class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div class="brand-text">
+          <div class="brand-eyebrow">Now pouring at</div>
+          <h1 id="house-name" class="brand-name">Merrit House</h1>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div id="clock" class="clock" aria-live="off"></div>
+        <button id="btn-archive" class="icon-btn" type="button" aria-label="Archive">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v4H3zM5 9v10h14V9M10 13h4"/></svg>
+        </button>
+        <button id="btn-add" class="icon-btn" type="button" aria-label="Add a beer">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <main id="board" class="board" aria-live="polite"></main>
+  </div>
+
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-backdrop" data-close></div>
+    <section class="sheet-panel" role="dialog" aria-modal="true">
+      <div id="sheet-content" class="sheet-content"></div>
+    </section>
+  </div>
+
+  <div id="osk" class="osk" hidden aria-label="On-screen keyboard"></div>
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

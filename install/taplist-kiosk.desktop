@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Tap list kiosk
+Comment=Show the Merrit House tap list full screen
+Exec=__APP_DIR__/install/kiosk.sh
+Terminal=false
+X-GNOME-Autostart-enabled=true
