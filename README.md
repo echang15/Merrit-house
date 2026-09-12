@@ -1,15 +1,16 @@
 # Merrit House · On Tap
 
 A touchscreen beer board for the kitchen kegerator. It runs on a Raspberry Pi 4
-with the official 7" touchscreen and shows what's pouring on each tap, with label
-art, style, ABV/IBU and a tasting note. Tap a beer to swap it, search for a new
+with an official Raspberry Pi touchscreen (Touch Display 2 in 5", 7" or 10", or
+the original 7") and shows what's pouring on each tap, with label art, style,
+ABV/IBU and a tasting note. Tap a beer to swap it, search for a new
 one online, or kick the keg and send it to the archive.
 
 Everything is one small Flask app plus a vanilla-JS front-end: no build step,
 no accounts, no cloud. Your phone can open the same page over Wi-Fi to manage the
 taps from the couch.
 
-![The board at 800×480](docs/board.png)
+![The board on the 10" Touch Display 2](docs/board.png)
 
 ![Searching with the on-screen keyboard](docs/search.png)
 
@@ -41,7 +42,8 @@ pip install -r requirements.txt
 python3 app.py --demo        # seeds three sample beers on an empty board
 ```
 
-Open <http://localhost:8080>. Resize the window to 800×480 to see the Pi layout.
+Open <http://localhost:8080>. Resize the window to 1920×1200 (10" Touch Display 2)
+or 800×480 (original 7") to preview the Pi layouts.
 
 ## Install on the Raspberry Pi
 
@@ -77,6 +79,19 @@ sudo systemctl restart taplist     # after editing the code or taplist.env
 
 If the Pi is set to boot to the console instead of the desktop, enable desktop
 autologin with `sudo raspi-config` → System Options → Boot / Auto Login.
+
+### Touch Display 2 orientation
+
+Touch Display 2 panels are portrait by default (720×1280 on the 5" and 7",
+1200×1920 on the 10"). The board is designed for landscape, so rotate the screen
+once: open **Preferences → Screen Configuration**, right-click the DSI display,
+choose **Orientation → Right** (or Left, depending on which way the cable comes
+out), then Apply. Touch input follows the rotation automatically. For a headless
+console setup instead, add `video=DSI-1:1200x1920@60,rotate=90` (or `720x1280`
+for the 7") to `/boot/firmware/cmdline.txt`.
+
+The UI scales itself to the panel: 800×480 on the original display, 1280×720
+and 1920×1200 on Touch Display 2, and anything larger on an HDMI monitor.
 
 ## Configuration
 

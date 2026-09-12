@@ -32,6 +32,17 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+/* The layout is designed at 800x480 and scaled up as a whole for bigger panels:
+   Touch Display 2 7"/5" (1280x720) and 10" (1920x1200), or any HD monitor. */
+:root { --ui-scale: 1; }
+@media (min-width: 1100px) and (min-height: 560px) { :root { --ui-scale: 1.5; } }
+@media (min-width: 1500px) and (min-height: 760px) { :root { --ui-scale: 1.9; } }
+@media (min-width: 1800px) and (min-height: 1000px) { :root { --ui-scale: 2.25; } }
+@media (min-width: 2400px) and (min-height: 1300px) { :root { --ui-scale: 3; } }
+body { zoom: var(--ui-scale); }
+/* 16:10 panels (10" Touch Display 2) have spare height: show more of the tasting note. */
+@media (min-width: 1800px) and (min-height: 1000px) { .tap-desc { -webkit-line-clamp: 5; } }
+
 html, body {
   margin: 0;
   height: 100%;
