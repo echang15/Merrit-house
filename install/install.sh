@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # One-shot installer for Raspberry Pi OS (Bullseye or Bookworm, 32- or 64-bit).
 #
-#   git clone https://github.com/echang15/merrit-house.git ~/merrit-house
-#   cd ~/merrit-house && ./install/install.sh
+#   git clone https://github.com/echang15/merritt-house.git ~/merritt-house
+#   cd ~/merritt-house && ./install/install.sh
 #
 # What it does:
 #   1. installs python3-flask, python3-requests and chromium via apt

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the Merrit House tap list.
+"""Run the Merritt House tap list.
 
     python3 app.py                 # http://0.0.0.0:8080
     python3 app.py --port 5000
@@ -8,7 +8,7 @@
 Environment:
     TAPLIST_DATA    directory for the SQLite db and cached labels (default ./data)
     TAPLIST_TAPS    number of taps (default 3)
-    TAPLIST_HOUSE   name shown on the board (default "Merrit House")
+    TAPLIST_HOUSE   name shown on the board (default "Merritt House")
     TAPLIST_UNTAPPD_CLIENT_ID / TAPLIST_UNTAPPD_CLIENT_SECRET
                     enable Untappd search in addition to Open Food Facts
 """
@@ -65,7 +65,7 @@ def seed_demo(app):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Merrit House tap list")
+    parser = argparse.ArgumentParser(description="Merritt House tap list")
     parser.add_argument("--host", default=os.environ.get("TAPLIST_HOST", "0.0.0.0"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("TAPLIST_PORT", "8080")))
     parser.add_argument("--demo", action="store_true", help="seed sample beers if the taps are empty")

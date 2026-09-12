@@ -1,4 +1,4 @@
-/* Merrit House tap list front-end. Vanilla JS, no build step. */
+/* Merritt House tap list front-end. Vanilla JS, no build step. */
 (function () {
   "use strict";
 

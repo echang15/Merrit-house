@@ -50,7 +50,7 @@ def lan_addresses(ttl=60):
 def create_app(data_dir=None, tap_count=None, providers=None, house_name=None):
     data_dir = data_dir or os.environ.get("TAPLIST_DATA", os.path.join(os.getcwd(), "data"))
     tap_count = int(tap_count or os.environ.get("TAPLIST_TAPS", "3"))
-    house_name = house_name or os.environ.get("TAPLIST_HOUSE", "Merrit House")
+    house_name = house_name or os.environ.get("TAPLIST_HOUSE", "Merritt House")
 
     app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
     app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024

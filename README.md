@@ -1,4 +1,4 @@
-# Merrit House · On Tap
+# Merritt House · On Tap
 
 A touchscreen beer board for the kitchen kegerator. It runs on a Raspberry Pi 4
 with an official Raspberry Pi touchscreen (Touch Display 2 in 5", 7" or 10", or
@@ -50,8 +50,8 @@ taps from the couch.
 ## Try it on your laptop
 
 ```bash
-git clone https://github.com/echang15/merrit-house.git
-cd merrit-house
+git clone https://github.com/echang15/merritt-house.git
+cd merritt-house
 pip install -r requirements.txt
 python3 app.py --demo        # seeds three sample beers on an empty board
 ```
@@ -65,8 +65,8 @@ Flash Raspberry Pi OS **with desktop** (Bullseye or Bookworm), connect the
 touchscreen, get on Wi-Fi, then:
 
 ```bash
-git clone https://github.com/echang15/merrit-house.git ~/merrit-house
-cd ~/merrit-house
+git clone https://github.com/echang15/merritt-house.git ~/merritt-house
+cd ~/merritt-house
 ./install/install.sh
 sudo reboot
 ```
@@ -135,7 +135,7 @@ variables in your shell:
 
 | Variable | Default | What it does |
 |---|---|---|
-| `TAPLIST_HOUSE` | `Merrit House` | Name shown at the top of the board |
+| `TAPLIST_HOUSE` | `Merritt House` | Name shown at the top of the board |
 | `TAPLIST_HOST` | `0.0.0.0` | Interface to listen on (`127.0.0.1` to allow only the Pi itself) |
 | `TAPLIST_TAPS` | `3` | Number of taps |
 | `TAPLIST_DATA` | `./data` | Where the SQLite database and cached labels live |

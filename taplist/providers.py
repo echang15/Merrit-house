@@ -19,7 +19,7 @@ import requests
 
 log = logging.getLogger(__name__)
 
-USER_AGENT = "MerritHouseTapList/1.0 (home tap display; https://github.com/echang15/merrit-house)"
+USER_AGENT = "MerrittHouseTapList/1.0 (home tap display; https://github.com/echang15/merritt-house)"
 TIMEOUT = float(os.environ.get("TAPLIST_SEARCH_TIMEOUT", "8"))
 
 # Open Food Facts category tags -> human readable style. Order matters: first match wins.
