@@ -56,6 +56,89 @@ class ApiTests(unittest.TestCase):
     def post(self, url, payload):
         return self.client.post(url, data=json.dumps(payload), content_type="application/json")
 
+    def test_index_ships_splash_screen(self):
+        page = self.client.get("/")
+        self.assertEqual(page.status_code, 200)
+        body = page.get_data(as_text=True)
+        self.assertIn('id="splash"', body)
+        self.assertIn('class="watermark"', body)
+        admin = self.client.get("/admin")
+        self.assertEqual(admin.status_code, 200)
+        self.assertEqual(admin.get_data(as_text=True), body)  # same app, mode picked client-side
+        self.assertEqual(self.client.get("/admin/").status_code, 200)
+        self.assertEqual(self.client.get("/api/metrics").status_code, 200)
+        img = self.client.get("/static/img/splash.jpg")
+        self.assertEqual(img.status_code, 200)
+        self.assertEqual(img.mimetype, "image/jpeg")
+
+    def test_state_lists_lan_urls(self):
+        from taplist import api as api_mod
+        api_mod._lan_cache.update(at=0.0, addrs=[])
+        with mock.patch.object(api_mod.socket, "gethostname", return_value="taproom.lan"):
+            data = self.client.get("/api/state", base_url="http://192.168.1.5:8080").get_json()
+        self.assertIn("http://taproom.local:8080/", data["urls"])
+        for url in data["urls"]:
+            self.assertTrue(url.startswith("http://"))
+            self.assertNotIn("127.0.0.1", url)
+        api_mod._lan_cache.update(at=0.0, addrs=[])
+
+    def test_score_a_beer(self):
+        resp = self.post("/api/beers", {"name": "Scored", "rating": 4})
+        beer = resp.get_json()
+        self.assertEqual(beer["rating"], 4)
+        put = lambda body: self.client.put(f"/api/beers/{beer['id']}", data=json.dumps(body),
+                                          content_type="application/json")
+        self.assertEqual(put({"rating": 5}).get_json()["rating"], 5)
+        self.assertIsNone(put({"rating": None}).get_json()["rating"])
+        self.assertEqual(put({"rating": "3"}).get_json()["rating"], 3)
+        for bad in (-1, 6, 2.5, "lots"):
+            self.assertEqual(put({"rating": bad}).status_code, 400, bad)
+        self.assertIsNone(put({"rating": 0}).get_json()["rating"])  # 0 clears, like null
+        self.assertEqual(put({"rating": 3}).get_json()["rating"], 3)
+        # Other edits leave the score alone.
+        self.assertEqual(put({"style": "Lager"}).get_json()["rating"], 3)
+        self.post("/api/taps/1", {"beer_id": beer["id"]})
+        self.assertEqual(self.client.get("/api/state").get_json()["taps"][0]["beer"]["rating"], 3)
+
+    def test_metrics(self):
+        empty = self.client.get("/api/metrics").get_json()
+        self.assertEqual(empty["kegs"], 0)
+        self.assertIsNone(empty["avg_rating"])
+        self.assertEqual(len(empty["by_month"]), 12)
+
+        pale = self.post("/api/taps/1", {"beer": {"name": "Pale", "brewery": "SN", "style": "Pale Ale", "rating": 4}})
+        pale_id = pale.get_json()["taps"][0]["beer"]["id"]
+        stout = self.post("/api/taps/2", {"beer": {"name": "Stout", "brewery": "G", "style": "Stout", "rating": 2}})
+        stout_id = stout.get_json()["taps"][1]["beer"]["id"]
+        self.client.delete("/api/taps/1")
+        self.post("/api/taps/1", {"beer_id": pale_id})       # Pale tapped twice
+        self.post("/api/beers", {"name": "Never tapped", "rating": 5})
+
+        m = self.client.get("/api/metrics").get_json()
+        self.assertEqual(m["kegs"], 3)
+        self.assertEqual(m["beers_poured"], 2)
+        self.assertEqual(m["beers_library"], 3)
+        self.assertEqual(m["pouring"], 2)
+        self.assertEqual(m["rated"], 3)
+        self.assertAlmostEqual(m["avg_rating"], 11 / 3)
+        self.assertEqual(m["rating_counts"], {"1": 0, "2": 1, "3": 0, "4": 1, "5": 1})
+        # Only beers that have actually been on tap make the leaderboards.
+        self.assertEqual([b["name"] for b in m["top_rated"]], ["Pale", "Stout"])
+        self.assertEqual([b["name"] for b in m["most_tapped"]], ["Pale", "Stout"])
+        self.assertEqual(m["most_tapped"][0]["times_tapped"], 2)
+        self.assertTrue(m["most_tapped"][0]["on_tap"])
+        self.assertEqual(m["styles"], [{"label": "Pale Ale", "kegs": 2}, {"label": "Stout", "kegs": 1}])
+        self.assertEqual(m["breweries"][0], {"label": "SN", "kegs": 2})
+        self.assertEqual(sum(x["kegs"] for x in m["by_month"]), 3)
+        self.assertEqual(m["by_month"][-1]["kegs"], 3)
+        self.assertEqual(len(m["recent"]), 3)
+        self.assertEqual(m["recent"][0]["name"], "Pale")
+        self.assertEqual(m["recent"][0]["rating"], 4)
+        self.assertGreater(m["seconds_on_tap"], 0)
+        self.assertEqual(m["top_rated"][0]["label"], None)  # with_label ran (key present)
+        self.assertNotIn("id", m["styles"][0])
+        self.assertEqual(stout_id, m["top_rated"][1]["id"])
+
     def test_state_has_empty_taps(self):
         data = self.client.get("/api/state").get_json()
         self.assertEqual(data["house"], "Test House")
@@ -187,6 +270,65 @@ class ApiTests(unittest.TestCase):
                                content_type="application/json")
         self.assertEqual(resp.status_code, 400)
 
+    def test_artwork_refresh_and_remove(self):
+        with mock.patch("taplist.labels.requests.get") as get:
+            get.return_value.__enter__.return_value = _fake_response(PNG, "image/png")
+            resp = self.post("/api/taps/1", {"beer": self.provider.results[0]})
+        beer = resp.get_json()["taps"][0]["beer"]
+        self.assertTrue(beer["label_cached"])
+        self.assertTrue(beer["label"].startswith("/labels/"))
+        first_file = beer["label"]
+        served = self.client.get(first_file)
+        self.assertEqual(served.status_code, 200)
+        self.assertIn("immutable", served.headers["Cache-Control"])
+        # Refresh downloads again and swaps in a new file.
+        with mock.patch("taplist.labels.requests.get") as get:
+            get.return_value.__enter__.return_value = _fake_response(PNG, "image/png")
+            resp = self.client.post(f"/api/beers/{beer['id']}/art/label/refresh")
+        self.assertEqual(resp.status_code, 200)
+        refreshed = resp.get_json()
+        self.assertTrue(refreshed["label_cached"])
+        self.assertNotEqual(refreshed["label"], first_file)
+        self.assertEqual(self.client.get(first_file).status_code, 404)
+        # A failed download keeps the old copy.
+        with mock.patch("taplist.labels.requests.get", side_effect=OSError("offline")):
+            resp = self.client.post(f"/api/beers/{beer['id']}/art/label/refresh")
+        self.assertEqual(resp.status_code, 502)
+        self.assertEqual(self.client.get(refreshed["label"]).status_code, 200)
+        # Uploaded artwork has no source to refresh from.
+        self.assertEqual(self.client.post(f"/api/beers/{beer['id']}/art/brewery/refresh").status_code, 400)
+        self.assertEqual(self.client.post(f"/api/beers/{beer['id']}/art/sideways/refresh").status_code, 404)
+        # Remove deletes the file and forgets the address.
+        resp = self.client.delete(f"/api/beers/{beer['id']}/art/label")
+        self.assertEqual(resp.status_code, 200)
+        removed = resp.get_json()
+        self.assertIsNone(removed["label"])
+        self.assertIsNone(removed["label_url"])
+        self.assertFalse(removed["label_cached"])
+        self.assertEqual(self.client.get(refreshed["label"]).status_code, 404)
+
+    def test_missing_artwork_is_retried_in_the_background(self):
+        retry = self.app.extensions["taplist"]["retry_artwork"]
+        with mock.patch("taplist.labels.requests.get", side_effect=OSError("offline")):
+            resp = self.post("/api/taps/1", {"beer": self.provider.results[0]})
+        beer = resp.get_json()["taps"][0]["beer"]
+        self.assertFalse(beer["label_cached"])
+        self.assertEqual(beer["label"], "https://example.test/hazy.png")  # falls back to the web
+        # Still offline: the sweeper fails once and backs off.
+        with mock.patch("taplist.labels.requests.get", side_effect=OSError("offline")) as get:
+            self.assertEqual(retry(now=1000), 0)
+            self.assertEqual(get.call_count, 1)
+            self.assertEqual(retry(now=1001), 0)   # too soon, not retried
+            self.assertEqual(get.call_count, 1)
+        # Back online after the delay: cached, and the board serves the local copy.
+        with mock.patch("taplist.labels.requests.get") as get:
+            get.return_value.__enter__.return_value = _fake_response(PNG, "image/png")
+            self.assertEqual(retry(now=1000 + 11 * 60), 1)
+        beer = self.client.get("/api/state").get_json()["taps"][0]["beer"]
+        self.assertTrue(beer["label_cached"])
+        self.assertTrue(beer["label"].startswith("/labels/"))
+        self.assertEqual(retry(now=1000 + 12 * 60), 0)  # nothing left to do
+
     def test_brewery_logo_url_is_fetched_and_replaced(self):
         with mock.patch("taplist.labels.requests.get") as get:
             get.return_value.__enter__.return_value = _fake_response(PNG, "image/png")
@@ -236,6 +378,7 @@ class ApiTests(unittest.TestCase):
         beer = db.get_beer(1)
         self.assertEqual(beer["display_art"], "label")
         self.assertIsNone(beer["brewery_logo_url"])
+        self.assertIsNone(beer["rating"])
         db.close()
 
     def test_validation(self):
@@ -274,6 +417,52 @@ class ProviderTests(unittest.TestCase):
         self.assertIn("Ingredients: Water", r["description"])
         self.assertEqual(r["label_url"], "https://images.test/front.jpg")
 
+    def test_catalog_beer_parsing(self):
+        payload = {
+            "object": "list", "url": "/beer/search", "query": "sculpin", "has_more": False,
+            "data": [
+                {
+                    "id": "6a7119c6-92a2-40d2-b87a-2e4529c8577a", "object": "beer",
+                    "name": "Sculpin IPA", "style": "American-Style India Pale Ale",
+                    "description": "A great example of what got us into brewing.",
+                    "abv": 7, "ibu": 70,
+                    "brewer": {"id": "ab94", "object": "brewer", "name": "Ballast Point Brewing Company",
+                               "url": "https://www.ballastpoint.com/"},
+                },
+                {"id": "x", "object": "beer", "name": "  ", "brewer": {}},
+                {"id": "y", "object": "beer", "name": "Mystery", "abv": None, "ibu": "", "brewer": None},
+            ],
+        }
+        with mock.patch("taplist.providers.requests.get") as get:
+            get.return_value.json.return_value = payload
+            get.return_value.raise_for_status.return_value = None
+            results = prov.CatalogBeer("secret-key").search("sculpin", limit=5)
+        kwargs = get.call_args.kwargs
+        self.assertEqual(get.call_args.args[0], "https://api.catalog.beer/beer/search")
+        self.assertEqual(kwargs["params"], {"q": "sculpin", "count": 5})
+        self.assertEqual(kwargs["auth"], ("secret-key", ""))
+        self.assertEqual(kwargs["headers"]["Accept"], "application/json")
+        self.assertEqual(len(results), 2)
+        r = results[0]
+        self.assertEqual(r["name"], "Sculpin IPA")
+        self.assertEqual(r["brewery"], "Ballast Point Brewing Company")
+        self.assertEqual(r["style"], "American-Style India Pale Ale")
+        self.assertEqual(r["abv"], 7.0)
+        self.assertEqual(r["ibu"], 70.0)
+        self.assertEqual(r["source"], "catalogbeer")
+        self.assertEqual(r["source_id"], "6a7119c6-92a2-40d2-b87a-2e4529c8577a")
+        self.assertIsNone(r["label_url"])
+        self.assertIn("domain=ballastpoint.com", r["brewery_logo_url"])
+        self.assertEqual(results[1]["brewery"], "")
+        self.assertIsNone(results[1]["abv"])
+        self.assertIsNone(results[1]["brewery_logo_url"])
+        # API-level errors surface as a failure the search endpoint reports per provider.
+        with mock.patch("taplist.providers.requests.get") as get:
+            get.return_value.json.return_value = {"error": True, "error_msg": "Invalid API key"}
+            get.return_value.raise_for_status.return_value = None
+            with self.assertRaises(RuntimeError):
+                prov.CatalogBeer("bad").search("ipa")
+
     def test_untappd_parsing(self):
         payload = {
             "response": {
@@ -305,6 +494,14 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(names, ["untappd", "openfoodfacts"])
         with mock.patch.dict(os.environ, {"TAPLIST_DISABLE_OFF": "1"}, clear=True):
             self.assertEqual(prov.providers_from_env(), [])
+        with mock.patch.dict(os.environ, {"TAPLIST_CATALOG_BEER_KEY": " cb-key "}, clear=True):
+            enabled = prov.providers_from_env()
+        self.assertEqual([p.name for p in enabled], ["catalogbeer", "openfoodfacts"])
+        self.assertEqual(enabled[0].api_key, "cb-key")
+        with mock.patch.dict(os.environ, {"TAPLIST_CATALOG_BEER_KEY": "k", "TAPLIST_UNTAPPD_CLIENT_ID": "a",
+                                          "TAPLIST_UNTAPPD_CLIENT_SECRET": "b"}, clear=True):
+            names = [p.name for p in prov.providers_from_env()]
+        self.assertEqual(names, ["untappd", "catalogbeer", "openfoodfacts"])
 
 
 def _fake_response(body, content_type):

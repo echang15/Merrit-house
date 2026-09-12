@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # One-shot installer for Raspberry Pi OS (Bullseye or Bookworm, 32- or 64-bit).
 #
-#   git clone https://github.com/echang15/merrit-house.git ~/merrit-house
-#   cd ~/merrit-house && ./install/install.sh
+#   git clone https://github.com/echang15/merritt-house.git ~/merritt-house
+#   cd ~/merritt-house && ./install/install.sh
 #
 # What it does:
 #   1. installs python3-flask, python3-requests and chromium via apt
@@ -17,7 +17,8 @@ RUN_HOME="$(getent passwd "$RUN_USER" | cut -d: -f6)"
 
 echo "==> Installing packages"
 sudo apt-get update -qq
-sudo apt-get install -y -qq python3-flask python3-requests curl \
+# avahi-daemon answers for <hostname>.local so phones can find the Pi by name.
+sudo apt-get install -y -qq python3-flask python3-requests curl avahi-daemon \
   $(apt-cache show chromium >/dev/null 2>&1 && echo chromium || echo chromium-browser)
 
 echo "==> Installing systemd service (user: $RUN_USER, dir: $APP_DIR)"
@@ -53,7 +54,12 @@ if command -v raspi-config >/dev/null 2>&1; then
 fi
 
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+NAME="$(hostname -s 2>/dev/null || hostname)"
 echo
-echo "Done. The board is running at http://${IP:-localhost}:8080/"
-echo "Open that address on your phone to manage taps, or reboot to start the kiosk:"
+echo "Done. The board is running at:"
+echo "  http://${IP:-localhost}:8080/"
+echo "  http://${NAME}.local:8080/"
+echo "Open either address in a browser on any phone or laptop on your Wi-Fi to"
+echo "manage the taps. The same addresses are shown on the kiosk's splash screen."
+echo "Reboot to start the kiosk:"
 echo "  sudo reboot"

@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS beers (
     display_art TEXT NOT NULL DEFAULT 'label',
     source      TEXT NOT NULL DEFAULT 'manual',
     source_id   TEXT,
+    rating      INTEGER,
     created_at  REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS taps (
@@ -44,14 +45,16 @@ CREATE INDEX IF NOT EXISTS idx_beers_source ON beers(source, source_id);
 """
 
 BEER_FIELDS = ("name", "brewery", "style", "abv", "ibu", "description", "label_url", "brewery_logo_url",
-               "display_art", "source", "source_id")
+               "display_art", "source", "source_id", "rating")
 DISPLAY_ART = ("label", "brewery", "both")
+RATING_MIN, RATING_MAX = 1, 5
 
 # Columns added after the first release; applied to older databases on startup.
 MIGRATIONS = (
     ("beers", "brewery_logo_file", "TEXT"),
     ("beers", "brewery_logo_url", "TEXT"),
     ("beers", "display_art", "TEXT NOT NULL DEFAULT 'label'"),
+    ("beers", "rating", "INTEGER"),
 )
 
 
@@ -109,6 +112,7 @@ class Database:
             "display_art": row["display_art"] or "label",
             "source": row["source"],
             "source_id": row["source_id"],
+            "rating": row["rating"],
             "created_at": row["created_at"],
         }
 
@@ -133,11 +137,11 @@ class Database:
         with self._lock:
             cur = self._conn.execute(
                 "INSERT INTO beers(name, brewery, style, abv, ibu, description, label_url, brewery_logo_url,"
-                " display_art, source, source_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                " display_art, source, source_id, rating, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     clean["name"], clean["brewery"], clean["style"], clean["abv"], clean["ibu"],
                     clean["description"], clean["label_url"], clean["brewery_logo_url"], clean["display_art"],
-                    clean["source"], clean["source_id"], time.time(),
+                    clean["source"], clean["source_id"], clean["rating"], time.time(),
                 ),
             )
             self._bump()
@@ -179,6 +183,15 @@ class Database:
                 "SELECT * FROM beers WHERE name LIKE ? OR brewery LIKE ? OR style LIKE ?"
                 " ORDER BY created_at DESC LIMIT ?",
                 (q, q, q, limit),
+            ).fetchall()
+            return [self._beer_dict(r) for r in rows]
+
+    def beers_missing_artwork(self):
+        """Beers with a remote artwork URL that hasn't been saved locally yet."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM beers WHERE (label_url IS NOT NULL AND label_file IS NULL)"
+                " OR (brewery_logo_url IS NOT NULL AND brewery_logo_file IS NULL) ORDER BY id"
             ).fetchall()
             return [self._beer_dict(r) for r in rows]
 
@@ -269,6 +282,120 @@ class Database:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    # -- metrics -----------------------------------------------------------
+
+    def metrics(self, months=12, top=8):
+        """Aggregates over everything that has ever been on tap, for the stats page."""
+        now = time.time()
+        with self._lock:
+            q = self._conn.execute
+            totals = q(
+                """
+                SELECT COUNT(*)                                        AS kegs,
+                       COUNT(DISTINCT beer_id)                         AS beers_poured,
+                       SUM(COALESCE(untapped_at, ?) - tapped_at)       AS seconds,
+                       MIN(tapped_at)                                  AS first_tapped,
+                       SUM(CASE WHEN untapped_at IS NULL THEN 1 ELSE 0 END) AS pouring
+                FROM tap_history
+                """,
+                (now,),
+            ).fetchone()
+            ratings = q(
+                "SELECT COUNT(*) AS rated, AVG(rating) AS avg_rating FROM beers WHERE rating IS NOT NULL"
+            ).fetchone()
+            rating_counts = {n: 0 for n in range(RATING_MIN, RATING_MAX + 1)}
+            for r in q("SELECT rating, COUNT(*) AS n FROM beers WHERE rating IS NOT NULL GROUP BY rating"):
+                if r["rating"] in rating_counts:
+                    rating_counts[r["rating"]] = r["n"]
+
+            per_beer = """
+                SELECT b.*,
+                       COUNT(h.id)                                    AS times_tapped,
+                       SUM(COALESCE(h.untapped_at, ?) - h.tapped_at)  AS seconds_on_tap,
+                       MAX(h.tapped_at)                               AS last_tapped,
+                       EXISTS(SELECT 1 FROM taps t WHERE t.beer_id = b.id) AS on_tap
+                FROM beers b JOIN tap_history h ON h.beer_id = b.id
+                GROUP BY b.id
+            """
+
+            def beers(order, where="", limit=top):
+                rows = q(f"SELECT * FROM ({per_beer}) {where} ORDER BY {order} LIMIT ?", (now, limit)).fetchall()
+                out = []
+                for r in rows:
+                    beer = self._beer_dict(r)
+                    beer.update(
+                        times_tapped=r["times_tapped"],
+                        seconds_on_tap=r["seconds_on_tap"] or 0,
+                        last_tapped=r["last_tapped"],
+                        on_tap=bool(r["on_tap"]),
+                    )
+                    out.append(beer)
+                return out
+
+            top_rated = beers("rating DESC, times_tapped DESC, last_tapped DESC", "WHERE rating IS NOT NULL")
+            most_tapped = beers("times_tapped DESC, seconds_on_tap DESC")
+            longest = beers("seconds_on_tap DESC")
+
+            def grouped(column):
+                rows = q(
+                    f"""
+                    SELECT COALESCE(NULLIF(TRIM(b.{column}), ''), 'Unknown') AS label, COUNT(h.id) AS kegs
+                    FROM tap_history h JOIN beers b ON b.id = h.beer_id
+                    GROUP BY LOWER(TRIM(b.{column}))
+                    ORDER BY kegs DESC, label
+                    """
+                ).fetchall()
+                out = [{"label": r["label"], "kegs": r["kegs"]} for r in rows[:top]]
+                rest = sum(r["kegs"] for r in rows[top:])
+                if rest:
+                    out.append({"label": "Other", "kegs": rest})
+                return out
+
+            # Kegs tapped per calendar month, oldest first, always `months` buckets.
+            by_month = []
+            year, month = time.localtime(now)[:2]
+            keys = []
+            for _ in range(months):
+                keys.append(f"{year:04d}-{month:02d}")
+                month -= 1
+                if month == 0:
+                    year, month = year - 1, 12
+            keys.reverse()
+            counts = {r["ym"]: r["n"] for r in q(
+                "SELECT strftime('%Y-%m', tapped_at, 'unixepoch', 'localtime') AS ym, COUNT(*) AS n"
+                " FROM tap_history GROUP BY ym"
+            )}
+            for key in keys:
+                by_month.append({"month": key, "kegs": counts.get(key, 0)})
+
+            recent = [dict(r) for r in q(
+                "SELECT h.*, b.name, b.brewery, b.rating FROM tap_history h JOIN beers b ON b.id = h.beer_id"
+                " ORDER BY h.tapped_at DESC LIMIT ?",
+                (top,),
+            )]
+
+            kegs = totals["kegs"] or 0
+            return {
+                "now": now,
+                "kegs": kegs,
+                "beers_poured": totals["beers_poured"] or 0,
+                "beers_library": q("SELECT COUNT(*) AS n FROM beers").fetchone()["n"],
+                "pouring": totals["pouring"] or 0,
+                "seconds_on_tap": totals["seconds"] or 0,
+                "avg_seconds_per_keg": (totals["seconds"] or 0) / kegs if kegs else 0,
+                "first_tapped": totals["first_tapped"],
+                "rated": ratings["rated"] or 0,
+                "avg_rating": ratings["avg_rating"],
+                "rating_counts": rating_counts,
+                "top_rated": top_rated,
+                "most_tapped": most_tapped,
+                "longest": longest,
+                "styles": grouped("style"),
+                "breweries": grouped("brewery"),
+                "by_month": by_month,
+                "recent": recent,
+            }
+
     def close(self):
         self._conn.close()
 
@@ -280,6 +407,19 @@ def _num(value):
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _rating(value):
+    """A score from 1 to 5, or None to clear it."""
+    if value in (None, "", "null", 0, "0"):
+        return None
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"rating must be a whole number from {RATING_MIN} to {RATING_MAX}")
+    if num != int(num) or not RATING_MIN <= num <= RATING_MAX:
+        raise ValueError(f"rating must be a whole number from {RATING_MIN} to {RATING_MAX}")
+    return int(num)
 
 
 def _clean_beer(data, partial=False):
@@ -301,6 +441,8 @@ def _clean_beer(data, partial=False):
             out[key] = val
         elif key == "source":
             out[key] = (val or "manual").strip() or "manual"
+        elif key == "rating":
+            out[key] = _rating(val)
         else:
             out[key] = (val or "").strip()
     if not partial and not out.get("name"):

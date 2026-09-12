@@ -1,4 +1,4 @@
-/* Merrit House tap list front-end. Vanilla JS, no build step. */
+/* Merritt House tap list front-end. Vanilla JS, no build step. */
 (function () {
   "use strict";
 
@@ -9,12 +9,23 @@
   const sheetPanel = $(".sheet-panel");
   const oskEl = $("#osk");
   const toastEl = $("#toast");
+  const splashEl = $("#splash");
+  const splashNet = $("#splash-net");
+  // The kiosk on the Pi opens the app at localhost; phones and laptops come in over the LAN.
+  const IS_KIOSK = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  // "/" is the read-only board for guests and the kiosk; "/admin" has every control.
+  const ADMIN = location.pathname.replace(/\/+$/, "") === "/admin";
+  document.documentElement.classList.toggle("admin", ADMIN);
 
   const POLL_MS = 4000;
   const IDLE_MS = 90000;
+  // Bring the splash screen back after the board sits untouched this long (0 = never).
+  const SPLASH_RETURN_MS = 5 * 60 * 1000;
 
   let state = { version: 0, taps: [], house: "", tap_count: 3 };
   let idleTimer = null;
+  let splashTimer = null;
+  let searchTap = null; // which tap the search sheet pours onto
   let searchSeq = 0;
 
   // ---------- utils ----------
@@ -37,6 +48,29 @@
   }
   function fmtDate(ts) {
     return ts ? new Date(ts * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "";
+  }
+
+  function fmtDays(seconds) {
+    const days = (seconds || 0) / 86400;
+    if (days < 1) return `${Math.max(1, Math.round(days * 24))}h`;
+    return `${Math.round(days)}d`;
+  }
+  function fmtMonth(ym) {
+    const [y, m] = ym.split("-").map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "short" });
+  }
+
+  // Five stars, `value` of them filled. Interactive when `opts.action` is given.
+  function starsHTML(value, opts = {}) {
+    const v = Number(value) || 0;
+    const btns = [1, 2, 3, 4, 5].map((n) => {
+      const on = n <= v ? " on" : "";
+      const star = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 16.9l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.8z"/></svg>`;
+      if (!opts.action) return `<span class="star${on}">${star}</span>`;
+      const attrs = Object.entries(opts.data || {}).map(([k, val]) => ` data-${k}="${esc(val)}"`).join("");
+      return `<button type="button" class="star${on}" data-action="${esc(opts.action)}" data-value="${n}"${attrs} aria-label="${n} of 5">${star}</button>`;
+    }).join("");
+    return `<span class="stars${opts.size ? " stars-" + opts.size : ""}" role="img" aria-label="${v ? v + " of 5" : "not scored"}">${btns}</span>`;
   }
 
   async function api(url, opts = {}) {
@@ -128,6 +162,7 @@
     document.documentElement.style.setProperty("--taps", state.tap_count || state.taps.length || 3);
     $("#house-name").textContent = state.house || "On Tap";
     document.title = `${state.house || "On Tap"} · On Tap`;
+    renderSplashNet();
     board.innerHTML = state.taps.map((tap) => {
       const b = tap.beer;
       if (!b) {
@@ -147,6 +182,7 @@
             ${b.style ? html`<span class="pill pill-style">${esc(b.style)}</span>` : ""}
             ${b.abv != null ? html`<span class="pill"><b>${fmtAbv(b.abv)}</b> ABV</span>` : ""}
             ${b.ibu != null ? html`<span class="pill"><b>${fmtIbu(b.ibu)}</b> IBU</span>` : ""}
+            ${b.rating ? html`<span class="pill pill-score"><b>★ ${b.rating}</b></span>` : ""}
           </div>
           ${b.description ? html`<p class="tap-desc">${esc(b.description.split("\n")[0])}</p>` : ""}
           <div class="tap-since">${esc(ago(tap.tapped_at))}</div>
@@ -223,12 +259,84 @@
   sheet.addEventListener("pointerdown", bumpIdle, true);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !sheet.hidden) closeSheet(); });
 
+  // ---------- splash ----------
+
+  // On the kiosk, tell people where to open the app on their phone.
+  function renderSplashNet() {
+    const urls = (state.urls || []).filter(Boolean);
+    if (!IS_KIOSK || !urls.length) { splashNet.hidden = true; return; }
+    splashNet.innerHTML = "Manage the taps from your phone at " + urls.map((u) => html`<b>${esc(u.replace(/\/$/, "") + "/admin")}</b>`).join(" or ");
+    splashNet.hidden = false;
+  }
+
+  function showSplash() {
+    if (ADMIN || !splashEl.hidden) return;
+    closeSheet();
+    clearTimeout(splashTimer);
+    splashEl.classList.remove("leaving");
+    splashEl.hidden = false;
+  }
+  function hideSplash() {
+    if (splashEl.hidden || splashEl.classList.contains("leaving")) return;
+    splashEl.classList.add("leaving");
+    const done = () => {
+      if (!splashEl.classList.contains("leaving")) return;
+      splashEl.classList.remove("leaving");
+      splashEl.hidden = true;
+    };
+    splashEl.addEventListener("transitionend", done, { once: true });
+    setTimeout(done, 600); // in case transitionend never fires (reduced motion, hidden tab)
+    armSplash();
+  }
+  function armSplash() {
+    clearTimeout(splashTimer);
+    if (!ADMIN && SPLASH_RETURN_MS > 0) splashTimer = setTimeout(showSplash, SPLASH_RETURN_MS);
+  }
+  if (ADMIN) { splashEl.hidden = true; }
+  splashEl.addEventListener("click", hideSplash);
+  document.addEventListener("pointerdown", () => { if (splashEl.hidden) armSplash(); }, true);
+  document.addEventListener("keydown", () => { if (splashEl.hidden) armSplash(); }, true);
+
   const closeBtn = () => html`<button class="icon-btn" type="button" data-close aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
   const backBtn = (action) => html`<button class="icon-btn" type="button" data-action="${action}" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>`;
 
   // ---------- tap menu ----------
 
+  // Guests get the details only; the admin page adds the controls.
+  function openTapDetails(number) {
+    const tap = state.taps.find((t) => t.number === number);
+    if (!tap || !tap.beer) return;
+    const b = tap.beer;
+    openSheet(html`
+      <div class="sheet-head">
+        <div style="flex:1;min-width:0">
+          <div class="sheet-sub">Tap ${number}</div>
+          <h2 class="sheet-title">${esc(b.name)}</h2>
+        </div>
+        ${closeBtn()}
+      </div>
+      <div class="sheet-body">
+        <div class="menu-hero">
+          <div class="menu-hero-art" data-art>${artHTML(b, { badge: false })}</div>
+          <div class="menu-hero-text">
+            <h3>${esc(b.brewery || "")}</h3>
+            <p>${[b.style, b.abv != null ? fmtAbv(b.abv) + " ABV" : "", b.ibu != null ? fmtIbu(b.ibu) + " IBU" : ""].filter(Boolean).map(esc).join(" · ")}</p>
+            <p style="margin-top:6px;font-size:12px;color:var(--ink-3)">${esc(ago(tap.tapped_at))}</p>
+          </div>
+        </div>
+        ${b.description ? html`<p style="color:var(--ink-2);font-size:14px;line-height:1.5;margin:0 0 14px;white-space:pre-line">${esc(b.description)}</p>` : ""}
+        <div class="menu-section">
+          <div class="section-label">House score</div>
+          <div class="score-row">
+            ${starsHTML(b.rating, { size: "lg" })}
+            <span class="score-text">${b.rating ? `${b.rating} / 5` : "Not scored yet"}</span>
+          </div>
+        </div>
+      </div>`, { compact: true });
+  }
+
   function openTapMenu(number) {
+    if (!ADMIN) return openTapDetails(number);
     const tap = state.taps.find((t) => t.number === number);
     if (!tap) return;
     const b = tap.beer;
@@ -252,6 +360,26 @@
         </div>
         ${b.description ? html`<p style="color:var(--ink-2);font-size:14px;line-height:1.5;margin:0 0 14px;white-space:pre-line">${esc(b.description)}</p>` : ""}
         <div class="menu-section">
+          <div class="section-label">Your score</div>
+          <div class="score-row">
+            ${starsHTML(b.rating, { action: "rate", size: "lg", data: { id: b.id, tap: number } })}
+            <span class="score-text">${b.rating ? `${b.rating} / 5` : "Tap a star"}</span>
+          </div>
+        </div>
+        <div class="btn-stack">
+          <button class="btn btn-primary btn-lg" type="button" data-action="search" data-tap="${number}">
+            <svg viewBox="0 0 24 24"><path d="M4 12h10M10 6l6 6-6 6M18 5v14"/></svg> Change beer on tap ${number}
+          </button>
+          <div class="btn-row">
+            <button class="btn" type="button" data-action="edit-beer" data-id="${b.id}" data-tap="${number}">
+              <svg viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16zM13 7l4 4"/></svg> Edit details
+            </button>
+            <button class="btn btn-danger" type="button" data-action="kick" data-tap="${number}">
+              <svg viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13"/></svg> Keg kicked
+            </button>
+          </div>
+        </div>
+        <div class="menu-section">
           <div class="section-label">Artwork on the board</div>
           <div class="seg">
             <button type="button" class="${b.display_art === "brewery" || b.display_art === "both" ? "" : "on"}" data-action="set-art" data-id="${b.id}" data-tap="${number}" data-value="label" ${b.label ? "" : "disabled"}>Beer label</button>
@@ -260,18 +388,18 @@
           </div>
           ${!b.brewery_logo ? html`<div class="hint">No brewery logo yet — add one under <b>Edit details</b>.</div>` : ""}
         </div>
-        <div class="btn-stack">
-          <button class="btn btn-primary btn-lg" type="button" data-action="search" data-tap="${number}">
-            <svg viewBox="0 0 24 24"><path d="M4 12h10M10 6l6 6-6 6M18 5v14"/></svg> Change beer on tap ${number}
-          </button>
-          <button class="btn" type="button" data-action="edit-beer" data-id="${b.id}" data-tap="${number}">
-            <svg viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16zM13 7l4 4"/></svg> Edit details
-          </button>
-          <button class="btn btn-danger" type="button" data-action="kick" data-tap="${number}">
-            <svg viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13"/></svg> Keg kicked — clear tap ${number}
-          </button>
-        </div>
       </div>`, { compact: true });
+  }
+
+  // Tapping the current score again clears it.
+  async function rateBeer(beerId, value, current, after) {
+    const rating = Number(value) === Number(current) ? null : Number(value);
+    try {
+      await api(`/api/beers/${beerId}`, { method: "PUT", json: { rating } });
+      await loadState();
+      toast(rating ? `Scored ${rating} / 5` : "Score cleared");
+      if (after) after();
+    } catch (err) { toast(err.message, true); }
   }
 
   async function setArt(beerId, value, tapNumber) {
@@ -292,13 +420,20 @@
 
   // ---------- search ----------
 
+  function firstEmptyTap() {
+    const empty = state.taps.find((t) => !t.beer);
+    return empty ? empty.number : (state.taps[0] ? state.taps[0].number : 1);
+  }
+
   function openSearch(targetTap) {
+    searchTap = targetTap || firstEmptyTap();
     openSheet(html`
       <div class="sheet-head">
         <div style="flex:1;min-width:0">
-          <div class="sheet-sub">${targetTap ? `Choose a beer for tap ${targetTap}` : "Find a beer"}</div>
+          <div class="sheet-sub">Tap a beer to pour it</div>
           <h2 class="sheet-title">Search beers</h2>
         </div>
+
         <button class="icon-btn" type="button" data-action="toggle-osk" aria-label="Keyboard"><svg viewBox="0 0 24 24"><path d="M3 7h18v10H3zM7 11h1M11 11h1M15 11h1M7 14h10"/></svg></button>
         ${closeBtn()}
       </div>
@@ -308,9 +443,17 @@
           <input id="search-input" class="search-input" type="search" placeholder="Beer, brewery or style…" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
           <button class="search-clear" type="button" data-action="clear-search" aria-label="Clear"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
         </div>
-        <button class="btn" type="button" data-action="manual" data-tap="${targetTap || ""}">
+        <button class="btn" type="button" data-action="manual">
           <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> Manual
         </button>
+      </div>
+      <div class="tap-row">
+        <span class="tap-row-label">Put on</span>
+        <div class="seg tap-strip" aria-label="Put on tap">
+          ${state.taps.map((t) => html`<button type="button" class="${t.number === searchTap ? "on" : ""}" data-action="pick-tap" data-value="${t.number}" aria-label="Tap ${t.number}">
+            Tap ${t.number}${t.beer ? "" : html`<span class="tap-free" title="Empty"></span>`}
+          </button>`).join("")}
+        </div>
       </div>
       <div class="sheet-body"><div id="results" class="results"></div></div>`);
 
@@ -324,8 +467,9 @@
     });
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") { clearTimeout(timer); runSearch(input.value, targetTap); } });
     osk.attach(input, () => { clearTimeout(timer); runSearch(input.value, targetTap); });
-    input.focus({ preventScroll: true });
-    if (osk.enabled) osk.show(input);
+    // With the kiosk's on-screen keyboard the recent list would be hidden behind it,
+    // so leave the keyboard down until the field is tapped. Phones focus straight away.
+    if (!osk.enabled) input.focus({ preventScroll: true });
     showRecent(targetTap);
   }
 
@@ -340,7 +484,7 @@
         results.innerHTML = html`<div class="empty-state"><strong>Type to search</strong>Find a beer online, or tap <b>Manual</b> to add your own.</div>`;
         return;
       }
-      results.innerHTML = html`<div class="section-label">Recently on tap</div>` +
+      results.innerHTML = html`<div class="section-label">Recently on tap · tap one to pour it again</div>` +
         beers.slice(0, 12).map((b) => resultHTML({ ...b, beer_id: b.id, source: "library" }, targetTap)).join("");
     } catch (_) {
       results.innerHTML = "";
@@ -351,7 +495,8 @@
     const key = ++resultHTML.seq;
     resultHTML.cache[key] = r;
     const src = r.source === "library" ? "In your library" : (state.providers.find((p) => p.source === r.source) || {}).label || r.source;
-    return html`<button class="result" type="button" data-action="pick" data-key="${key}" data-tap="${targetTap || ""}">
+    // The row pours the beer straight onto the chosen tap; the pencil opens the editor first.
+    return html`<div class="result" role="button" tabindex="0" data-action="tap-result" data-key="${key}">
       <div class="result-art" data-art>${artHTML(r, { badge: false })}</div>
       <div class="result-text">
         <div class="result-name">${esc(r.name)}</div>
@@ -362,11 +507,30 @@
           <span class="source-tag ${r.source === "library" ? "library" : ""}">${r.on_tap ? "On tap now · " : ""}${esc(src)}</span>
         </div>
       </div>
-      <svg class="result-go" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
-    </button>`;
+      <button class="result-edit" type="button" data-action="pick" data-key="${key}" aria-label="Edit details first">
+        <svg viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16zM13 7l4 4"/></svg>
+      </button>
+    </div>`;
   }
   resultHTML.seq = 0;
   resultHTML.cache = {};
+
+  // One tap: put a search result straight on the chosen tap.
+  async function tapResult(key, rowEl) {
+    const r = resultHTML.cache[key];
+    if (!r || !searchTap) return;
+    const number = searchTap;
+    const payload = r.source === "library" ? { beer_id: r.beer_id != null ? r.beer_id : r.id } : { beer: r };
+    if (rowEl) rowEl.classList.add("busy");
+    try {
+      applyState(await api(`/api/taps/${number}`, { method: "POST", json: payload }));
+      closeSheet();
+      toast(`${r.name} is now on tap ${number}`);
+    } catch (err) {
+      if (rowEl) rowEl.classList.remove("busy");
+      toast(err.message, true);
+    }
+  }
 
   async function runSearch(q, targetTap) {
     const results = $("#results");
@@ -390,6 +554,45 @@
   }
 
   // ---------- editor ----------
+
+  // Status line and refresh/remove tools for one artwork slot in the editor.
+  function artToolsHTML(beer, kind, saved) {
+    const url = beer[kind === "label" ? "label_url" : "brewery_logo_url"];
+    const cached = beer[kind === "label" ? "label_cached" : "brewery_logo_cached"];
+    const has = cached || url;
+    let status = "";
+    if (cached) status = url ? "Saved on the Pi" : "Uploaded · saved on the Pi";
+    else if (url) status = "Not saved yet · loads from the web, will retry";
+    if (!saved || !has) return status ? html`<div class="art-status">${status}</div>` : "";
+    return html`
+      <div class="art-status">${status}</div>
+      <div class="btn-row art-tools">
+        ${url ? html`<button class="btn" type="button" data-action="refresh-art" data-kind="${kind}"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg> Refresh</button>` : ""}
+        <button class="btn btn-danger" type="button" data-action="remove-art" data-kind="${kind}"><svg viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13"/></svg> Remove</button>
+      </div>`;
+  }
+
+  // Re-download or delete a saved beer's artwork straight from the editor.
+  async function editArt(kind, action) {
+    const form = $("#editor");
+    if (!form || form._beerId == null) return;
+    const slot = form.querySelector(`.art-slot[data-slot="${kind}"]`);
+    slot.classList.add("busy");
+    try {
+      const updated = action === "refresh"
+        ? await api(`/api/beers/${form._beerId}/art/${kind}/refresh`, { method: "POST" })
+        : await api(`/api/beers/${form._beerId}/art/${kind}`, { method: "DELETE" });
+      form._beer = { ...form._beer, ...updated };
+      const src = kind === "label" ? updated.label : updated.brewery_logo;
+      slot.querySelector("[data-art]").innerHTML = artHTML(updated, { src: src || null, kind });
+      slot.querySelector('input[type="url"]').value = (kind === "label" ? updated.label_url : updated.brewery_logo_url) || "";
+      slot.querySelector('input[type="file"]').value = "";
+      slot.querySelector(".art-tools-wrap").innerHTML = artToolsHTML(updated, kind, true);
+      toast(action === "refresh" ? "Image downloaded again" : "Image removed");
+      await loadState();
+    } catch (err) { toast(err.message, true); }
+    slot.classList.remove("busy");
+  }
 
   function openEditor(beer, targetTap, opts = {}) {
     const isLibrary = beer.beer_id != null || (beer.id != null && beer.source !== undefined && beer.source !== "openfoodfacts" && beer.source !== "untappd" && opts.fromLibrary);
@@ -419,6 +622,7 @@
                   <input type="file" name="file_label" accept="image/*">
                 </label>
                 <input class="url-input" type="url" name="label_url" value="${esc(beer.label_url || "")}" placeholder="…or paste image URL">
+                <div class="art-tools-wrap">${artToolsHTML(beer, "label", beerId != null)}</div>
               </div>
             </div>
             <div class="art-slot" data-slot="brewery">
@@ -436,6 +640,7 @@
                 </div>
                 <input class="url-input" type="url" name="brewery_logo_url" value="${esc(beer.brewery_logo_url || "")}" placeholder="…or paste logo URL">
                 <div id="logo-candidates" class="logo-candidates" hidden></div>
+                <div class="art-tools-wrap">${artToolsHTML(beer, "brewery", beerId != null)}</div>
               </div>
             </div>
           </div>
@@ -445,6 +650,13 @@
             <div class="field"><label>Style</label><input name="style" value="${esc(beer.style || "")}" placeholder="IPA, Stout, Lager…"></div>
             <div class="field"><label>ABV %</label><input name="abv" inputmode="decimal" value="${beer.abv != null ? esc(beer.abv) : ""}" placeholder="6.5"></div>
             <div class="field"><label>IBU</label><input name="ibu" inputmode="numeric" value="${beer.ibu != null ? esc(beer.ibu) : ""}" placeholder="45"></div>
+            <div class="field wide">
+              <label>Score</label>
+              <div class="score-row score-field">
+                ${[1, 2, 3, 4, 5].map((n) => html`<label class="star-opt"><input type="radio" name="rating" value="${n}" ${Number(beer.rating) === n ? "checked" : ""}><span class="star"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 16.9l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.8z"/></svg></span></label>`).join("")}
+                <button type="button" class="score-clear" data-action="clear-score">Clear</button>
+              </div>
+            </div>
             <div class="field wide"><label>Description</label><textarea name="description" placeholder="What does it taste like?">${esc(beer.description || "")}</textarea></div>
             <div class="field wide"><label>Show on the board</label>
               <div class="seg">
@@ -457,7 +669,9 @@
       </div>
       <div class="sheet-foot">
         ${beerId != null && !beer.on_tap && opts.fromLibrary ? html`<button class="btn btn-danger" type="button" data-action="delete-beer" data-id="${beerId}">Delete</button>` : ""}
-        ${beerId != null && targetTap && opts.editOnly ? html`<button class="btn btn-primary btn-lg btn-grow" type="button" data-action="save" data-tap="">Save changes</button>` : tapButtons}
+        ${beerId != null && targetTap && opts.editOnly
+          ? html`<button class="btn btn-primary btn-lg btn-grow" type="button" data-action="save" data-tap="">Save changes</button>`
+          : html`${beerId != null && !targetTap ? html`<button class="btn" type="button" data-action="save" data-tap="">Save</button>` : ""}${tapButtons}`}
       </div>`);
 
     const form = $("#editor");
@@ -536,6 +750,7 @@
       ibu: fd.get("ibu").trim(),
       description: fd.get("description").trim(),
       display_art: fd.get("display_art") || "label",
+      rating: fd.get("rating") ? Number(fd.get("rating")) : null,
     };
     if (!fields.name) { toast("Give the beer a name", true); form.querySelector('[name="name"]').focus(); return; }
     const slots = {
@@ -618,6 +833,7 @@
       grid.innerHTML = beers.map((b) => {
         const key = ++resultHTML.seq;
         resultHTML.cache[key] = b;
+        b.__archived = true;
         const when = b.last_untapped ? `Last poured ${fmtDate(b.last_untapped)}` : `Added ${fmtDate(b.created_at)}`;
         const days = Math.round(b.seconds_on_tap / 86400);
         return html`<button class="archive-card" type="button" data-action="archive-pick" data-key="${key}">
@@ -626,20 +842,180 @@
             <div class="archive-name">${esc(b.name)}</div>
             <div class="archive-sub">${esc(b.brewery || b.style || "")}</div>
             <div class="archive-when">${esc(when)}${b.times_tapped ? ` · ${b.times_tapped}× · ${days}d` : ""}</div>
+            ${b.rating ? `<div class="archive-score">${starsHTML(b.rating, { size: "sm" })}</div>` : ""}
           </div>
         </button>`;
       }).join("");
     } catch (err) { toast(err.message, true); }
   }
 
+  // Read-only card for a beer that isn't pouring right now (archive, stats).
+  function openBeerDetails(b, back) {
+    const days = b.seconds_on_tap ? fmtDays(b.seconds_on_tap) : null;
+    openSheet(html`
+      <div class="sheet-head">
+        ${back ? backBtn(back) : ""}
+        <div style="flex:1;min-width:0">
+          <div class="sheet-sub">${b.last_untapped ? `Last poured ${esc(fmtDate(b.last_untapped))}` : "In the cellar"}</div>
+          <h2 class="sheet-title">${esc(b.name)}</h2>
+        </div>
+        ${closeBtn()}
+      </div>
+      <div class="sheet-body">
+        <div class="menu-hero">
+          <div class="menu-hero-art" data-art>${artHTML(b, { badge: false })}</div>
+          <div class="menu-hero-text">
+            <h3>${esc(b.brewery || "")}</h3>
+            <p>${[b.style, b.abv != null ? fmtAbv(b.abv) + " ABV" : "", b.ibu != null ? fmtIbu(b.ibu) + " IBU" : ""].filter(Boolean).map(esc).join(" · ")}</p>
+            ${b.times_tapped ? html`<p style="margin-top:6px;font-size:12px;color:var(--ink-3)">On tap ${b.times_tapped}× · ${days} in total</p>` : ""}
+          </div>
+        </div>
+        ${b.description ? html`<p style="color:var(--ink-2);font-size:14px;line-height:1.5;margin:0 0 14px;white-space:pre-line">${esc(b.description)}</p>` : ""}
+        <div class="menu-section">
+          <div class="section-label">House score</div>
+          <div class="score-row">
+            ${starsHTML(b.rating, { size: "lg" })}
+            <span class="score-text">${b.rating ? `${b.rating} / 5` : "Not scored yet"}</span>
+          </div>
+        </div>
+      </div>`, { compact: true });
+  }
+
+  // ---------- stats ----------
+
+  async function openStats() {
+    openSheet(html`
+      <div class="sheet-head">
+        <div style="flex:1;min-width:0">
+          <div class="sheet-sub">${esc(state.house || "On Tap")}</div>
+          <h2 class="sheet-title">Stats</h2>
+        </div>
+        ${closeBtn()}
+      </div>
+      <div class="sheet-body"><div id="stats" class="stats"><div class="spinner"></div></div></div>`);
+    try {
+      const m = await api("/api/metrics");
+      const el = $("#stats");
+      if (!el) return;
+      if (!m.kegs) {
+        el.outerHTML = html`<div class="empty-state"><strong>No pours yet</strong>Put a beer on tap and the numbers start here.</div>`;
+        return;
+      }
+      el.innerHTML = statsHTML(m);
+    } catch (err) { toast(err.message, true); }
+  }
+
+  function statsHTML(m) {
+    const tile = (value, label, sub) => html`<div class="stat"><div class="stat-value">${value}</div><div class="stat-label">${label}</div>${sub ? html`<div class="stat-sub">${sub}</div>` : ""}</div>`;
+    const since = m.first_tapped ? `since ${fmtDate(m.first_tapped)}` : "";
+    const avgDays = m.avg_seconds_per_keg / 86400;
+
+    // Horizontal bar list: one hue, value labelled at the end of each bar.
+    const bars = (rows, valueOf, labelOf, fmt, opts = {}) => {
+      const max = Math.max(...rows.map(valueOf), 1);
+      return html`<div class="bars">${rows.map((r) => {
+        const v = valueOf(r);
+        const key = opts.pick ? ++resultHTML.seq : null;
+        if (key) resultHTML.cache[key] = r;
+        const tag = key ? `button type="button" data-action="archive-pick" data-back="stats" data-key="${key}"` : "div";
+        return html`<${tag} class="bar-row" title="${esc(labelOf(r))}: ${esc(fmt(v))}">
+          <span class="bar-label">${labelOf(r)}</span>
+          <span class="bar-track"><span class="bar-fill" style="width:${(v / max) * 100}%"></span></span>
+          <span class="bar-value">${fmt(v)}</span>
+        </${key ? "button" : "div"}>`;
+      }).join("")}</div>`;
+    };
+    const nameOf = (b) => esc(b.name) + (b.on_tap ? ` <span class="on-tap-dot" title="On tap now"></span>` : "");
+
+    const maxMonth = Math.max(...m.by_month.map((x) => x.kegs), 1);
+    const months = html`<div class="columns" role="img" aria-label="Kegs tapped per month">${m.by_month.map((x) => html`
+      <div class="col" title="${esc(fmtMonth(x.month))}: ${x.kegs} keg${x.kegs === 1 ? "" : "s"}">
+        <span class="col-value">${x.kegs || ""}</span>
+        <span class="col-track"><span class="col-fill" style="height:${(x.kegs / maxMonth) * 100}%"></span></span>
+        <span class="col-label">${esc(fmtMonth(x.month))}</span>
+      </div>`).join("")}</div>`;
+
+    const ratingRows = [5, 4, 3, 2, 1].map((n) => ({ n, count: m.rating_counts[n] || 0 }));
+
+    return html`
+      <div class="kpis">
+        ${tile(m.kegs, "kegs tapped", since)}
+        ${tile(m.beers_poured, "different beers", `${m.beers_library} in the library`)}
+        ${tile(fmtDays(m.seconds_on_tap), "on tap in total", `${m.pouring} pouring now`)}
+        ${tile(avgDays >= 1 ? Math.round(avgDays) : fmtDays(m.avg_seconds_per_keg), avgDays >= 1 ? "days per keg" : "per keg", "average")}
+        ${tile(m.avg_rating != null ? m.avg_rating.toFixed(1) : "–", "average score", m.rated ? `${m.rated} scored` : "nothing scored yet")}
+      </div>
+
+      <div class="stats-grid">
+        <section class="stat-card">
+          <h3>Top rated</h3>
+          ${m.top_rated.length ? html`<div class="ranked">${m.top_rated.map((b) => {
+            const key = ++resultHTML.seq; resultHTML.cache[key] = b;
+            return html`<button type="button" class="ranked-row" data-action="archive-pick" data-back="stats" data-key="${key}">
+              <span class="ranked-art" data-art>${artHTML(b, { badge: false })}</span>
+              <span class="ranked-text"><b>${nameOf(b)}</b><small>${esc(b.brewery || b.style || "")} · ${b.times_tapped}× · ${fmtDays(b.seconds_on_tap)}</small></span>
+              ${starsHTML(b.rating, { size: "sm" })}
+            </button>`;
+          }).join("")}</div>` : html`<div class="hint">Score a beer from its tap menu and it shows up here.</div>`}
+        </section>
+
+        <section class="stat-card">
+          <h3>Scores</h3>
+          ${bars(ratingRows, (r) => r.count, (r) => `${r.n} ★`, (v) => String(v))}
+        </section>
+
+        <section class="stat-card">
+          <h3>Most tapped</h3>
+          ${bars(m.most_tapped, (b) => b.times_tapped, nameOf, (v) => `${v}×`, { pick: true })}
+        </section>
+
+        <section class="stat-card">
+          <h3>Longest on tap</h3>
+          ${bars(m.longest, (b) => b.seconds_on_tap, nameOf, fmtDays, { pick: true })}
+        </section>
+
+        <section class="stat-card">
+          <h3>Styles</h3>
+          ${bars(m.styles, (r) => r.kegs, (r) => esc(r.label), (v) => `${v} keg${v === 1 ? "" : "s"}`)}
+        </section>
+
+        <section class="stat-card">
+          <h3>Breweries</h3>
+          ${bars(m.breweries, (r) => r.kegs, (r) => esc(r.label), (v) => `${v} keg${v === 1 ? "" : "s"}`)}
+        </section>
+
+        <section class="stat-card stat-card-wide">
+          <h3>Kegs tapped by month</h3>
+          ${months}
+        </section>
+
+        <section class="stat-card stat-card-wide">
+          <h3>Recent pours</h3>
+          <div class="table-wrap"><table class="history">
+            <thead><tr><th>Beer</th><th>Tap</th><th>Tapped</th><th>On for</th><th>Score</th></tr></thead>
+            <tbody>${m.recent.map((h) => html`<tr>
+              <td><b>${esc(h.name)}</b><small>${esc(h.brewery || "")}</small></td>
+              <td>${h.tap_number}</td>
+              <td>${fmtDate(h.tapped_at)}</td>
+              <td>${fmtDays((h.untapped_at || m.now) - h.tapped_at)}${h.untapped_at ? "" : " · pouring"}</td>
+              <td>${h.rating ? `${h.rating} ★` : "–"}</td>
+            </tr>`).join("")}</tbody>
+          </table></div>
+        </section>
+      </div>`;
+  }
+
   // ---------- actions ----------
 
   board.addEventListener("click", (e) => {
     const card = e.target.closest("[data-tap]");
-    if (card) openTapMenu(Number(card.dataset.tap));
+    if (!card) return;
+    if (!ADMIN && card.classList.contains("empty")) return;
+    openTapMenu(Number(card.dataset.tap));
   });
   $("#btn-archive").addEventListener("click", openArchive);
-  $("#btn-add").addEventListener("click", () => openSearch(null));
+  $("#btn-stats").addEventListener("click", openStats);
+  $("#btn-add").addEventListener("click", () => { if (ADMIN) openSearch(null); });
 
   sheet.addEventListener("click", (e) => {
     const el = e.target.closest("[data-action]");
@@ -648,17 +1024,27 @@
     switch (el.dataset.action) {
       case "search": openSearch(tap); break;
       case "kick": kickTap(tap); break;
-      case "manual": openEditor({ source: "manual" }, tap, { back: "search:" + (tap || "") }); break;
+      case "manual": openEditor({ source: "manual" }, tap || searchTap, { back: "search:" + (tap || searchTap || "") }); break;
+      case "tap-result": tapResult(el.dataset.key, el); break;
+      case "pick-tap": {
+        searchTap = Number(el.dataset.value);
+        el.parentElement.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === el));
+        break;
+      }
       case "clear-search": { const i = $("#search-input"); i.value = ""; i.dispatchEvent(new Event("input")); i.focus(); break; }
       case "toggle-osk": osk.toggle(); break;
       case "pick": {
         const r = resultHTML.cache[el.dataset.key];
-        openEditor(r, tap, { back: "search:" + (tap || ""), fromLibrary: r.source === "library" });
+        const target = tap || searchTap;
+        openEditor(r, target, { back: "search:" + (target || ""), fromLibrary: r.source === "library" });
         break;
       }
       case "archive-pick": {
         const b = resultHTML.cache[el.dataset.key];
-        openEditor({ ...b, beer_id: b.id }, null, { back: "archive", fromLibrary: true });
+        const onTap = state.taps.find((x) => x.beer && x.beer.id === b.id);
+        if (onTap) openTapMenu(onTap.number);
+        else if (!ADMIN) openBeerDetails(b, el.dataset.back || "archive");
+        else openEditor({ ...b, beer_id: b.id }, null, { back: el.dataset.back || "archive", fromLibrary: true });
         break;
       }
       case "edit-beer": {
@@ -668,11 +1054,25 @@
       }
       case "save": saveEditor(tap); break;
       case "set-art": setArt(Number(el.dataset.id), el.dataset.value, tap); break;
+      case "rate": {
+        const t = state.taps.find((x) => x.number === tap);
+        const current = t && t.beer ? t.beer.rating : null;
+        rateBeer(Number(el.dataset.id), el.dataset.value, current, () => openTapMenu(tap));
+        break;
+      }
+      case "clear-score": {
+        const form = $("#editor");
+        if (form) form.querySelectorAll('input[name="rating"]').forEach((i) => (i.checked = false));
+        break;
+      }
       case "find-logo": findLogo(); break;
+      case "refresh-art": editArt(el.dataset.kind, "refresh"); break;
+      case "remove-art": editArt(el.dataset.kind, "remove"); break;
       case "pick-logo": pickLogo(el.dataset.url); break;
       case "delete-beer": deleteBeer(Number(el.dataset.id)); break;
       default:
-        if (el.dataset.action.startsWith("search:")) openSearch(Number(el.dataset.action.slice(7)) || null);
+        if (el.dataset.action === "stats") openStats();
+        else if (el.dataset.action.startsWith("search:")) openSearch(Number(el.dataset.action.slice(7)) || null);
         else if (el.dataset.action === "archive") openArchive();
         else if (el.dataset.action.startsWith("tap:")) openTapMenu(Number(el.dataset.action.slice(4)));
     }
@@ -693,10 +1093,13 @@
       ["hide", "&", ".", "space", ",", "go"],
     ],
     init() {
+      // Default on only for the Pi's own touchscreen. Phones, tablets and laptops
+      // on the network use their own keyboards; the toggle in the sheet header
+      // overrides either way and is remembered per browser.
       const stored = localStorage.getItem("osk");
       const coarse = window.matchMedia("(pointer: coarse)").matches;
       const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-      this.enabled = stored != null ? stored === "1" : coarse && !mobile;
+      this.enabled = stored != null ? stored === "1" : IS_KIOSK && coarse && !mobile;
       this.render();
       oskEl.addEventListener("pointerdown", (e) => {
         const key = e.target.closest(".osk-key");

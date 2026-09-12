@@ -9,3 +9,6 @@ data/
 *.db-shm
 .pytest_cache/
 .DS_Store
+
+# local secrets (API keys); read by the systemd service
+taplist.env

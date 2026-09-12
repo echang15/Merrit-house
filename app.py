@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the Merrit House tap list.
+"""Run the Merritt House tap list.
 
     python3 app.py                 # http://0.0.0.0:8080
     python3 app.py --port 5000
@@ -8,7 +8,7 @@
 Environment:
     TAPLIST_DATA    directory for the SQLite db and cached labels (default ./data)
     TAPLIST_TAPS    number of taps (default 3)
-    TAPLIST_HOUSE   name shown on the board (default "Merrit House")
+    TAPLIST_HOUSE   name shown on the board (default "Merritt House")
     TAPLIST_UNTAPPD_CLIENT_ID / TAPLIST_UNTAPPD_CLIENT_SECRET
                     enable Untappd search in addition to Open Food Facts
 """
@@ -17,6 +17,7 @@ import argparse
 import logging
 import os
 import sys
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -64,8 +65,29 @@ def seed_demo(app):
         db.set_tap(number, beer["id"])
 
 
+ARTWORK_RETRY_SECONDS = 10 * 60
+
+
+def start_artwork_retry(app, interval=ARTWORK_RETRY_SECONDS):
+    """Keep trying to cache artwork that couldn't be downloaded when it was tapped."""
+    retry = app.extensions["taplist"]["retry_artwork"]
+    log = logging.getLogger("taplist.artwork")
+
+    def loop():
+        while True:
+            try:
+                fetched = retry()
+                if fetched:
+                    log.info("cached %d image(s) that were missing", fetched)
+            except Exception as exc:  # never let the sweeper die
+                log.warning("artwork retry failed: %s", exc)
+            threading.Event().wait(interval)
+
+    threading.Thread(target=loop, name="artwork-retry", daemon=True).start()
+
+
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Merrit House tap list")
+    parser = argparse.ArgumentParser(description="Merritt House tap list")
     parser.add_argument("--host", default=os.environ.get("TAPLIST_HOST", "0.0.0.0"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("TAPLIST_PORT", "8080")))
     parser.add_argument("--demo", action="store_true", help="seed sample beers if the taps are empty")
@@ -78,6 +100,7 @@ def main(argv=None):
     app = create_app()
     if args.demo:
         seed_demo(app)
+    start_artwork_retry(app)
     app.run(host=args.host, port=args.port, debug=args.debug, threaded=True, use_reloader=False)
 
 

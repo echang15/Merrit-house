@@ -13,6 +13,7 @@
 </head>
 <body>
   <div class="ambient" aria-hidden="true"></div>
+  <div class="watermark" aria-hidden="true"></div>
 
   <div id="app" class="app">
     <header class="topbar">
@@ -20,17 +21,27 @@
         <span class="brand-mark" aria-hidden="true"></span>
         <div class="brand-text">
           <div class="brand-eyebrow">Now pouring at</div>
-          <h1 id="house-name" class="brand-name">Merrit House</h1>
+          <h1 id="house-name" class="brand-name">Merritt House</h1>
         </div>
       </div>
       <div class="topbar-right">
         <div id="clock" class="clock" aria-live="off"></div>
+        <span class="admin-badge admin-only" aria-hidden="true">Admin</span>
+        <button id="btn-stats" class="icon-btn" type="button" aria-label="Stats">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16M6 16v-5M11 16V6M16 16v-8"/></svg>
+        </button>
         <button id="btn-archive" class="icon-btn" type="button" aria-label="Archive">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v4H3zM5 9v10h14V9M10 13h4"/></svg>
         </button>
-        <button id="btn-add" class="icon-btn" type="button" aria-label="Add a beer">
+        <button id="btn-add" class="icon-btn admin-only" type="button" aria-label="Add a beer">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
         </button>
+        <a class="icon-btn viewer-only" href="/admin" aria-label="Admin">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        </a>
+        <a class="icon-btn admin-only" href="/" aria-label="Back to the board">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg>
+        </a>
       </div>
     </header>
 
@@ -45,6 +56,12 @@
   </div>
 
   <div id="osk" class="osk" hidden aria-label="On-screen keyboard"></div>
+
+  <button id="splash" class="splash" type="button" aria-label="Tap to see what's on tap">
+    <img class="splash-img" src="/static/img/splash.jpg" alt="Merritt House Home Bar &amp; Brewery">
+    <span class="splash-hint">Tap to see what's on tap</span>
+    <span id="splash-net" class="splash-net" hidden></span>
+  </button>
   <div id="toast" class="toast" hidden></div>
 
   <script src="/static/app.js"></script>
