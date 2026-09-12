@@ -84,14 +84,34 @@
     return words.slice(0, 2).map((w) => w[0].toUpperCase()).join("");
   }
 
-  function artHTML(beer, opts = {}) {
-    if (beer && beer.label) {
-      const src = esc(beer.label);
-      const blur = opts.blur ? html`<div class="tap-art-blur" style="background-image:url('${src}')"></div>` : "";
-      return html`${blur}<img class="${opts.cls || ""}" src="${src}" alt="" loading="lazy" onerror="this.closest('[data-art]').innerHTML = window.__genLabel(this.dataset.b)" data-b="${esc(JSON.stringify({ name: beer.name, style: beer.style }))}">`;
-    }
-    return genLabel(beer);
+  // Which artwork the board shows for a beer: its label, the brewery logo, or both.
+  function pickArt(beer) {
+    const mode = (beer && beer.display_art) || "label";
+    const label = beer && beer.label;
+    const logo = beer && beer.brewery_logo;
+    if (mode === "brewery" && logo) return { main: logo, badge: null, kind: "brewery" };
+    if (mode === "both" && logo) return label ? { main: label, badge: logo, kind: "both" } : { main: logo, badge: null, kind: "brewery" };
+    if (label) return { main: label, badge: null, kind: "label" };
+    if (logo) return { main: logo, badge: null, kind: "brewery" };
+    return { main: null, badge: null, kind: "none" };
   }
+
+  function artHTML(beer, opts = {}) {
+    const art = "src" in opts ? { main: opts.src, badge: null, kind: opts.kind || "label" } : pickArt(beer);
+    if (art.main) {
+      const src = esc(art.main);
+      const blur = opts.blur ? html`<div class="tap-art-blur" style="background-image:url('${src}')"></div>` : "";
+      const badge = art.badge && opts.badge !== false ? html`<img class="art-badge" src="${esc(art.badge)}" alt="" onerror="this.remove()">` : "";
+      const cls = [opts.cls || "", art.kind === "brewery" ? "is-logo" : ""].join(" ").trim();
+      const fallback = art.kind === "brewery" ? "window.__emptyArt('brewery')" : "window.__genLabel(this.dataset.b)";
+      return html`${blur}<img class="${cls}" src="${src}" alt="" loading="lazy" onerror="this.closest('[data-art]').innerHTML = ${fallback}" data-b="${esc(JSON.stringify({ name: beer && beer.name, style: beer && beer.style }))}">${badge}`;
+    }
+    return art.kind === "none" && opts.kind === "brewery" ? emptyArt("brewery") : genLabel(beer);
+  }
+  function emptyArt(kind) {
+    return html`<div class="editor-art-empty">${kind === "brewery" ? "No logo yet" : "No artwork"}</div>`;
+  }
+  window.__emptyArt = emptyArt;
   function genLabel(beer) {
     const b = typeof beer === "string" ? JSON.parse(beer) : beer || {};
     const [hi, lo, ink] = styleColors(b.style);
@@ -223,7 +243,7 @@
       </div>
       <div class="sheet-body">
         <div class="menu-hero">
-          <div class="menu-hero-art" data-art>${artHTML(b)}</div>
+          <div class="menu-hero-art" data-art>${artHTML(b, { badge: false })}</div>
           <div class="menu-hero-text">
             <h3>${esc(b.brewery || "")}</h3>
             <p>${[b.style, b.abv != null ? fmtAbv(b.abv) + " ABV" : "", b.ibu != null ? fmtIbu(b.ibu) + " IBU" : ""].filter(Boolean).map(esc).join(" · ")}</p>
@@ -231,6 +251,15 @@
           </div>
         </div>
         ${b.description ? html`<p style="color:var(--ink-2);font-size:14px;line-height:1.5;margin:0 0 14px;white-space:pre-line">${esc(b.description)}</p>` : ""}
+        <div class="menu-section">
+          <div class="section-label">Artwork on the board</div>
+          <div class="seg">
+            <button type="button" class="${b.display_art === "brewery" || b.display_art === "both" ? "" : "on"}" data-action="set-art" data-id="${b.id}" data-tap="${number}" data-value="label" ${b.label ? "" : "disabled"}>Beer label</button>
+            <button type="button" class="${b.display_art === "brewery" ? "on" : ""}" data-action="set-art" data-id="${b.id}" data-tap="${number}" data-value="brewery" ${b.brewery_logo ? "" : "disabled"}>Brewery logo</button>
+            <button type="button" class="${b.display_art === "both" ? "on" : ""}" data-action="set-art" data-id="${b.id}" data-tap="${number}" data-value="both" ${b.label && b.brewery_logo ? "" : "disabled"}>Both</button>
+          </div>
+          ${!b.brewery_logo ? html`<div class="hint">No brewery logo yet — add one under <b>Edit details</b>.</div>` : ""}
+        </div>
         <div class="btn-stack">
           <button class="btn btn-primary btn-lg" type="button" data-action="search" data-tap="${number}">
             <svg viewBox="0 0 24 24"><path d="M4 12h10M10 6l6 6-6 6M18 5v14"/></svg> Change beer on tap ${number}
@@ -243,6 +272,14 @@
           </button>
         </div>
       </div>`, { compact: true });
+  }
+
+  async function setArt(beerId, value, tapNumber) {
+    try {
+      await api(`/api/beers/${beerId}`, { method: "PUT", json: { display_art: value } });
+      await loadState();
+      openTapMenu(tapNumber);
+    } catch (err) { toast(err.message, true); }
   }
 
   async function kickTap(number) {
@@ -315,7 +352,7 @@
     resultHTML.cache[key] = r;
     const src = r.source === "library" ? "In your library" : (state.providers.find((p) => p.source === r.source) || {}).label || r.source;
     return html`<button class="result" type="button" data-action="pick" data-key="${key}" data-tap="${targetTap || ""}">
-      <div class="result-art" data-art>${artHTML(r)}</div>
+      <div class="result-art" data-art>${artHTML(r, { badge: false })}</div>
       <div class="result-text">
         <div class="result-name">${esc(r.name)}</div>
         <div class="result-sub">${esc(r.brewery || "Unknown brewery")}</div>
@@ -373,13 +410,33 @@
       <div class="sheet-body">
         <form id="editor" class="editor" autocomplete="off">
           <div>
-            <div class="editor-art" data-art>${artHTML(beer)}</div>
-            <div class="editor-art-actions">
-              <label class="btn">
-                <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3"/></svg> Photo / upload
-                <input type="file" name="file" accept="image/*">
-              </label>
-              <input type="url" name="label_url" value="${esc(beer.label_url || "")}" placeholder="…or paste image URL" style="height:44px;padding:0 12px;border-radius:12px;border:1px solid var(--card-border);background:rgba(0,0,0,.35);font-size:13px;width:100%;outline:none">
+            <div class="art-slot" data-slot="label">
+              <div class="slot-label">Beer label</div>
+              <div class="editor-art" data-art>${artHTML(beer, { src: beer.label || null, kind: "label" })}</div>
+              <div class="editor-art-actions">
+                <label class="btn">
+                  <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3"/></svg> Photo / upload
+                  <input type="file" name="file_label" accept="image/*">
+                </label>
+                <input class="url-input" type="url" name="label_url" value="${esc(beer.label_url || "")}" placeholder="…or paste image URL">
+              </div>
+            </div>
+            <div class="art-slot" data-slot="brewery">
+              <div class="slot-label">Brewery logo</div>
+              <div class="editor-art editor-art-logo" data-art>${artHTML(beer, { src: beer.brewery_logo || null, kind: "brewery" })}</div>
+              <div class="editor-art-actions">
+                <div class="btn-row">
+                  <label class="btn">
+                    <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3"/></svg> Upload
+                    <input type="file" name="file_brewery" accept="image/*">
+                  </label>
+                  <button class="btn" type="button" data-action="find-logo">
+                    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg> Find
+                  </button>
+                </div>
+                <input class="url-input" type="url" name="brewery_logo_url" value="${esc(beer.brewery_logo_url || "")}" placeholder="…or paste logo URL">
+                <div id="logo-candidates" class="logo-candidates" hidden></div>
+              </div>
             </div>
           </div>
           <div class="editor-fields">
@@ -389,6 +446,12 @@
             <div class="field"><label>ABV %</label><input name="abv" inputmode="decimal" value="${beer.abv != null ? esc(beer.abv) : ""}" placeholder="6.5"></div>
             <div class="field"><label>IBU</label><input name="ibu" inputmode="numeric" value="${beer.ibu != null ? esc(beer.ibu) : ""}" placeholder="45"></div>
             <div class="field wide"><label>Description</label><textarea name="description" placeholder="What does it taste like?">${esc(beer.description || "")}</textarea></div>
+            <div class="field wide"><label>Show on the board</label>
+              <div class="seg">
+                ${[["label", "Beer label"], ["brewery", "Brewery logo"], ["both", "Both"]].map(([v, l]) => html`<label class="seg-opt"><input type="radio" name="display_art" value="${v}" ${(beer.display_art || "label") === v ? "checked" : ""}><span>${l}</span></label>`).join("")}
+              </div>
+              <div class="hint">If the chosen artwork is missing, the board falls back to whatever it has.</div>
+            </div>
           </div>
         </form>
       </div>
@@ -400,26 +463,65 @@
     const form = $("#editor");
     form._beer = beer;
     form._beerId = beerId;
-    form.querySelectorAll("input, textarea").forEach((el) => osk.attach(el));
-    const fileInput = form.querySelector('input[type="file"]');
-    fileInput.addEventListener("change", () => {
-      const file = fileInput.files[0];
-      if (!file) return;
-      const art = form.querySelector("[data-art]");
-      art.innerHTML = html`<img src="${URL.createObjectURL(file)}" alt="">`;
-      form.querySelector('[name="label_url"]').value = "";
-    });
-    const urlInput = form.querySelector('[name="label_url"]');
-    urlInput.addEventListener("change", () => {
-      if (urlInput.value.trim()) {
-        form.querySelector("[data-art]").innerHTML = html`<img src="${esc(urlInput.value.trim())}" alt="">`;
-        fileInput.value = "";
-      }
+    form.querySelectorAll("input:not([type=radio]), textarea").forEach((el) => osk.attach(el));
+    form.querySelectorAll(".art-slot").forEach((slot) => {
+      const art = slot.querySelector("[data-art]");
+      const fileInput = slot.querySelector('input[type="file"]');
+      const urlInput = slot.querySelector('input[type="url"]');
+      fileInput.addEventListener("change", () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+        art.innerHTML = html`<img src="${URL.createObjectURL(file)}" alt="">`;
+        urlInput.value = "";
+      });
+      urlInput.addEventListener("change", () => {
+        if (urlInput.value.trim()) {
+          art.innerHTML = html`<img src="${esc(urlInput.value.trim())}" alt="">`;
+          fileInput.value = "";
+        }
+      });
     });
     if (!beer.name) {
       form.querySelector('[name="name"]').focus({ preventScroll: true });
       if (osk.enabled) osk.show(form.querySelector('[name="name"]'));
     }
+  }
+
+  async function findLogo() {
+    const form = $("#editor");
+    if (!form) return;
+    const brewery = form.querySelector('[name="brewery"]').value.trim();
+    const box = form.querySelector("#logo-candidates");
+    if (!brewery) { toast("Fill in the brewery first", true); return; }
+    box.hidden = false;
+    box.innerHTML = `<div class="spinner" style="margin:10px auto"></div>`;
+    try {
+      const data = await api(`/api/brewery-logo?q=${encodeURIComponent(brewery)}`);
+      if (!data.results.length) {
+        box.innerHTML = html`<div class="hint">${data.error ? "Lookup failed: " + esc(data.error).slice(0, 80) : "No brewery found — try a shorter name, or paste a logo URL."}</div>`;
+        return;
+      }
+      box.innerHTML = data.results.map((r) => html`<button class="logo-candidate" type="button" data-action="pick-logo" data-url="${esc(r.logo_url)}">
+        <img src="${esc(r.logo_url)}" alt="" onerror="this.style.visibility='hidden'">
+        <div><b>${esc(r.brewery)}</b><small>${esc(r.place || r.website)}</small></div>
+      </button>`).join("");
+    } catch (err) {
+      box.innerHTML = html`<div class="hint">${esc(err.message)}</div>`;
+    }
+  }
+
+  function pickLogo(url) {
+    const form = $("#editor");
+    if (!form) return;
+    const slot = form.querySelector('.art-slot[data-slot="brewery"]');
+    slot.querySelector('input[type="url"]').value = url;
+    slot.querySelector('input[type="file"]').value = "";
+    slot.querySelector("[data-art]").innerHTML = html`<img src="${esc(url)}" alt="">`;
+    form.querySelector("#logo-candidates").hidden = true;
+    const both = form.querySelector('input[name="display_art"][value="both"]');
+    const current = form.querySelector('input[name="display_art"]:checked');
+    if (current && current.value === "label" && form.querySelector('[data-slot="label"] img')) both.checked = true;
+    else if (current && current.value === "label") form.querySelector('input[name="display_art"][value="brewery"]').checked = true;
   }
 
   async function saveEditor(tapNumber) {
@@ -433,10 +535,13 @@
       abv: fd.get("abv").trim(),
       ibu: fd.get("ibu").trim(),
       description: fd.get("description").trim(),
+      display_art: fd.get("display_art") || "label",
     };
     if (!fields.name) { toast("Give the beer a name", true); form.querySelector('[name="name"]').focus(); return; }
-    const file = form.querySelector('input[type="file"]').files[0];
-    const labelUrl = fd.get("label_url").trim();
+    const slots = {
+      label: { file: form.querySelector('[name="file_label"]').files[0], url: fd.get("label_url").trim(), key: "label_url", path: "label" },
+      brewery: { file: form.querySelector('[name="file_brewery"]').files[0], url: fd.get("brewery_logo_url").trim(), key: "brewery_logo_url", path: "brewery-logo" },
+    };
     const original = form._beer;
     const buttons = sheet.querySelectorAll(".sheet-foot .btn");
     buttons.forEach((b) => (b.disabled = true));
@@ -444,19 +549,28 @@
       let beerId = form._beerId;
       if (beerId != null) {
         const patch = { ...fields };
-        if (labelUrl !== (original.label_url || "") && !file) patch.label_url = labelUrl;
+        for (const slot of Object.values(slots)) {
+          if (!slot.file && slot.url !== (original[slot.key] || "")) patch[slot.key] = slot.url;
+        }
         await api(`/api/beers/${beerId}`, { method: "PUT", json: patch });
       } else {
         const created = await api("/api/beers", {
           method: "POST",
-          json: { ...fields, label_url: file ? "" : labelUrl, source: original.source || "manual", source_id: original.source_id || null },
+          json: {
+            ...fields,
+            label_url: slots.label.file ? "" : slots.label.url,
+            brewery_logo_url: slots.brewery.file ? "" : slots.brewery.url,
+            source: original.source || "manual",
+            source_id: original.source_id || null,
+          },
         });
         beerId = created.id;
       }
-      if (file) {
+      for (const slot of Object.values(slots)) {
+        if (!slot.file) continue;
         const upload = new FormData();
-        upload.append("label", file, file.name || "label.jpg");
-        await api(`/api/beers/${beerId}/label`, { method: "POST", form: upload });
+        upload.append("label", slot.file, slot.file.name || "image.jpg");
+        await api(`/api/beers/${beerId}/${slot.path}`, { method: "POST", form: upload });
       }
       if (tapNumber) {
         applyState(await api(`/api/taps/${tapNumber}`, { method: "POST", json: { beer_id: beerId } }));
@@ -507,7 +621,7 @@
         const when = b.last_untapped ? `Last poured ${fmtDate(b.last_untapped)}` : `Added ${fmtDate(b.created_at)}`;
         const days = Math.round(b.seconds_on_tap / 86400);
         return html`<button class="archive-card" type="button" data-action="archive-pick" data-key="${key}">
-          <div class="archive-art" data-art>${artHTML(b)}</div>
+          <div class="archive-art" data-art>${artHTML(b, { badge: false })}</div>
           <div class="archive-text">
             <div class="archive-name">${esc(b.name)}</div>
             <div class="archive-sub">${esc(b.brewery || b.style || "")}</div>
@@ -553,6 +667,9 @@
         break;
       }
       case "save": saveEditor(tap); break;
+      case "set-art": setArt(Number(el.dataset.id), el.dataset.value, tap); break;
+      case "find-logo": findLogo(); break;
+      case "pick-logo": pickLogo(el.dataset.url); break;
       case "delete-beer": deleteBeer(Number(el.dataset.id)); break;
       default:
         if (el.dataset.action.startsWith("search:")) openSearch(Number(el.dataset.action.slice(7)) || null);
@@ -592,7 +709,7 @@
       // Keep focus on the input when tapping keyboard keys.
       oskEl.addEventListener("mousedown", (e) => e.preventDefault());
       document.addEventListener("focusin", (e) => {
-        if (this.enabled && e.target.matches("input:not([type=file]), textarea") && !sheet.hidden) this.show(e.target);
+        if (this.enabled && e.target.matches("input:not([type=file]):not([type=radio]):not([type=checkbox]), textarea") && !sheet.hidden) this.show(e.target);
       });
     },
     render() {

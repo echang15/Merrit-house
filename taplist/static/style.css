@@ -176,6 +176,14 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
   padding: 12px;
   filter: drop-shadow(0 12px 22px rgba(0, 0, 0, 0.55));
 }
+.tap-art-img.is-logo { padding: 22px; }
+.art-badge {
+  position: absolute; right: 10px; bottom: 10px; z-index: 3;
+  width: 24%; max-width: 68px; aspect-ratio: 1;
+  border-radius: 16px; padding: 5px; object-fit: contain;
+  background: rgba(255, 250, 240, 0.94);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+}
 .tap-art::after {
   content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 30%;
   background: linear-gradient(to bottom, transparent, rgba(15, 12, 9, 0.7));
@@ -400,6 +408,43 @@ html.osk-open .sheet-foot { display: none; }
 .field input:focus, .field textarea:focus { border-color: rgba(245, 165, 36, 0.6); box-shadow: 0 0 0 3px rgba(245, 165, 36, 0.15); }
 .tap-choice { display: flex; gap: 8px; flex: 1; }
 .tap-choice .btn { flex: 1; padding: 0 10px; }
+
+/* segmented control (artwork choice) */
+.seg { display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: rgba(0, 0, 0, 0.35); border: 1px solid var(--card-border); }
+.seg-opt { flex: 1; position: relative; min-width: 0; }
+.seg-opt input { position: absolute; inset: 0; opacity: 0; margin: 0; }
+.seg-opt span, .seg > button {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  height: 42px; width: 100%; border-radius: 11px; border: 0; background: transparent;
+  color: var(--ink-2); font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: background 0.15s ease;
+}
+.seg-opt input:checked + span, .seg > button.on { background: var(--card-strong); color: var(--ink); box-shadow: inset 0 0 0 1px rgba(255, 224, 178, 0.2); }
+.seg-opt input:disabled + span, .seg > button[disabled] { opacity: 0.35; }
+.seg > button:active { background: var(--card-strong); }
+.menu-section { padding: 2px 0 12px; }
+.menu-section .section-label { padding-left: 2px; }
+.hint { font-size: 12px; color: var(--ink-3); margin: 6px 2px 0; }
+
+/* editor artwork slots */
+.art-slot { margin-bottom: 14px; }
+.slot-label { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 6px 4px; }
+.editor-art-logo { aspect-ratio: 1.35; }
+.editor-art-logo img { padding: 10px; }
+.editor-art-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--ink-3); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.btn-row { display: flex; gap: 6px; }
+.btn-row .btn { flex: 1; padding: 0 8px; }
+.url-input { height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--card-border); background: rgba(0, 0, 0, 0.35); font-size: 13px; width: 100%; outline: none; }
+.url-input:focus { border-color: rgba(245, 165, 36, 0.6); }
+.logo-candidates { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.logo-candidate {
+  display: grid; grid-template-columns: 40px 1fr; gap: 8px; align-items: center;
+  padding: 6px; border-radius: 12px; border: 1px solid var(--card-border); background: var(--card); text-align: left;
+}
+.logo-candidate:active { background: var(--card-strong); }
+.logo-candidate img { width: 40px; height: 40px; object-fit: contain; border-radius: 8px; background: rgba(255, 250, 240, 0.94); padding: 3px; }
+.logo-candidate b { display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.logo-candidate small { color: var(--ink-3); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
 
 /* archive */
 .archive-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding-bottom: 12px; }

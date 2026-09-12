@@ -8,7 +8,7 @@ from flask import Flask, jsonify, request, send_from_directory, abort
 
 from .db import Database
 from .labels import LabelStore
-from .providers import providers_from_env, search_all
+from .providers import providers_from_env, search_all, find_brewery_logos
 
 log = logging.getLogger(__name__)
 
@@ -33,24 +33,44 @@ def create_app(data_dir=None, tap_count=None, providers=None, house_name=None):
     # -- helpers ------------------------------------------------------------
 
     def with_label(beer):
-        """Attach the URL the front-end should use for the label artwork."""
+        """Attach the URLs the front-end should use for the beer label and brewery logo."""
         if beer is None:
             return None
         beer = dict(beer)
-        if beer.get("label_file"):
-            beer["label"] = f"/labels/{beer['label_file']}"
-        else:
-            beer["label"] = beer.get("label_url")
+        beer["label"] = f"/labels/{beer['label_file']}" if beer.get("label_file") else beer.get("label_url")
+        beer["brewery_logo"] = (
+            f"/labels/{beer['brewery_logo_file']}" if beer.get("brewery_logo_file") else beer.get("brewery_logo_url")
+        )
         return beer
 
-    def ensure_label(beer):
-        """Download the remote label into local storage if we don't have one yet."""
-        if beer and not beer.get("label_file") and beer.get("label_url"):
-            name = labels.fetch(beer["id"], beer["label_url"])
-            if name:
-                db.set_label_file(beer["id"], name)
-                beer["label_file"] = name
+    ART_KINDS = {"label": ("label_url", "label_file"), "brewery": ("brewery_logo_url", "brewery_logo_file")}
+
+    def ensure_label(beer, kinds=("label", "brewery")):
+        """Download remote artwork into local storage if we don't have it yet."""
+        if not beer:
+            return beer
+        for kind in kinds:
+            url_key, file_key = ART_KINDS[kind]
+            if not beer.get(file_key) and beer.get(url_key):
+                name = labels.fetch(beer["id"], beer[url_key])
+                if name:
+                    db.set_label_file(beer["id"], name, kind=kind)
+                    beer[file_key] = name
         return beer
+
+    def replace_art(beer_id, kind, url=None, upload=None):
+        """Swap one artwork slot for a new remote URL or an uploaded file."""
+        url_key, file_key = ART_KINDS[kind]
+        old_file = db.get_beer(beer_id).get(file_key)
+        if upload is not None:
+            name = labels.save_upload(beer_id, upload.stream, upload.mimetype)  # validates before we touch anything
+            db.set_label_file(beer_id, name, kind=kind)
+            labels.remove(old_file)
+            return db.get_beer(beer_id)
+        labels.remove(old_file)
+        db.set_label_file(beer_id, None, kind=kind)
+        beer = db.update_beer(beer_id, {url_key: url})
+        return ensure_label(beer, kinds=(kind,))
 
     def state():
         return {
@@ -197,12 +217,11 @@ def create_app(data_dir=None, tap_count=None, providers=None, house_name=None):
             beer = db.update_beer(beer_id, data)
         except ValueError as exc:
             abort(400, str(exc))
+        # A new remote image was chosen: drop the cached file and fetch again.
         if "label_url" in data:
-            # A new remote label was chosen: drop the cached one and fetch again.
-            labels.remove(beer.get("label_file"))
-            db.set_label_file(beer_id, None)
-            beer["label_file"] = None
-            beer = ensure_label(beer)
+            beer = replace_art(beer_id, "label", url=data.get("label_url"))
+        if "brewery_logo_url" in data:
+            beer = replace_art(beer_id, "brewery", url=data.get("brewery_logo_url"))
         return jsonify(with_label(beer))
 
     @app.delete("/api/beers/<int:beer_id>")
@@ -213,23 +232,34 @@ def create_app(data_dir=None, tap_count=None, providers=None, house_name=None):
         if beer is None:
             abort(404)
         labels.remove(beer.get("label_file"))
+        labels.remove(beer.get("brewery_logo_file"))
         return jsonify({"deleted": beer_id, "version": db.version()})
 
     @app.post("/api/beers/<int:beer_id>/label")
-    def api_upload_label(beer_id):
-        beer = db.get_beer(beer_id)
-        if beer is None:
+    @app.post("/api/beers/<int:beer_id>/brewery-logo")
+    def api_upload_art(beer_id):
+        if db.get_beer(beer_id) is None:
             abort(404)
-        upload = request.files.get("label")
+        kind = "brewery" if request.path.endswith("/brewery-logo") else "label"
+        upload = request.files.get("label") or request.files.get("file")
         if upload is None:
             abort(400, "multipart field 'label' required")
         try:
-            name = labels.save_upload(beer_id, upload.stream, upload.mimetype)
+            beer = replace_art(beer_id, kind, upload=upload)
         except ValueError as exc:
             abort(400, str(exc))
-        labels.remove(beer.get("label_file"))
-        db.set_label_file(beer_id, name)
-        return jsonify(with_label(db.get_beer(beer_id)))
+        return jsonify(with_label(beer))
+
+    @app.get("/api/brewery-logo")
+    def api_brewery_logo():
+        q = (request.args.get("q") or "").strip()
+        if len(q) < 2:
+            return jsonify({"query": q, "results": [], "error": None})
+        try:
+            return jsonify({"query": q, "results": find_brewery_logos(q), "error": None})
+        except Exception as exc:  # network down, API changed...
+            log.warning("brewery lookup failed: %s", exc)
+            return jsonify({"query": q, "results": [], "error": str(exc)})
 
     # -- errors --------------------------------------------------------------
 

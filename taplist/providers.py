@@ -157,11 +157,46 @@ class Untappd:
                     "ibu": beer.get("beer_ibu") or None,
                     "description": _clean_text(beer.get("beer_description")),
                     "label_url": beer.get("beer_label_hd") or beer.get("beer_label"),
+                    "brewery_logo_url": brewery.get("brewery_label"),
                     "source": self.name,
                     "source_id": str(beer.get("bid") or ""),
                 }
             )
         return results
+
+
+OPEN_BREWERY_DB = "https://api.openbrewerydb.org/v1/breweries/search"
+FAVICON_SERVICE = "https://www.google.com/s2/favicons?domain={host}&sz=256"
+
+
+def find_brewery_logos(query, limit=6):
+    """Look a brewery up on Open Brewery DB and return logo candidates.
+
+    Open Brewery DB has no artwork, but it knows the brewery's website, and a
+    256px site icon is usually the brewery's logo. Good enough as a one-tap
+    fallback; the user can always upload something better.
+    """
+    resp = requests.get(OPEN_BREWERY_DB, params={"query": query, "per_page": limit},
+                        timeout=TIMEOUT, headers={"User-Agent": USER_AGENT})
+    resp.raise_for_status()
+    out = []
+    for b in resp.json() or []:
+        site = (b.get("website_url") or "").strip()
+        if not site:
+            continue
+        host = re.sub(r"^https?://", "", site).split("/")[0].lower()
+        if host.startswith("www."):
+            host = host[4:]
+        if not host:
+            continue
+        place = ", ".join(x for x in (b.get("city"), b.get("state_province") or b.get("state"), b.get("country")) if x)
+        out.append({
+            "brewery": _clean_text(b.get("name")),
+            "place": place,
+            "website": site,
+            "logo_url": FAVICON_SERVICE.format(host=host),
+        })
+    return out
 
 
 def providers_from_env():

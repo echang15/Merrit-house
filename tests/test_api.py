@@ -155,6 +155,89 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.delete(f"/api/beers/{beer_id}").status_code, 200)
         self.assertEqual(self.client.get("/api/archive").get_json()["beers"], [])
 
+    def test_brewery_logo_upload_and_display_choice(self):
+        resp = self.post("/api/taps/1", {"beer": {"name": "Logo Beer", "brewery": "Logo Brewing"}})
+        beer = resp.get_json()["taps"][0]["beer"]
+        self.assertEqual(beer["display_art"], "label")
+        self.assertIsNone(beer["brewery_logo"])
+        # Upload a brewery logo through its own endpoint.
+        resp = self.client.post(
+            f"/api/beers/{beer['id']}/brewery-logo",
+            data={"label": (io.BytesIO(PNG), "logo.png", "image/png")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(resp.status_code, 200)
+        updated = resp.get_json()
+        self.assertTrue(updated["brewery_logo"].startswith("/labels/"))
+        self.assertIsNone(updated["label"])  # the beer label slot is untouched
+        # A bad upload leaves the existing logo alone.
+        resp = self.client.post(
+            f"/api/beers/{beer['id']}/brewery-logo",
+            data={"label": (io.BytesIO(b"x"), "x.txt", "text/plain")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(self.client.get(f"/api/beers/{beer['id']}").get_json()["brewery_logo"], updated["brewery_logo"])
+        # Choose what the board shows.
+        resp = self.client.put(f"/api/beers/{beer['id']}", data=json.dumps({"display_art": "brewery"}),
+                               content_type="application/json")
+        self.assertEqual(resp.get_json()["display_art"], "brewery")
+        self.assertEqual(self.client.get("/api/state").get_json()["taps"][0]["beer"]["display_art"], "brewery")
+        resp = self.client.put(f"/api/beers/{beer['id']}", data=json.dumps({"display_art": "sideways"}),
+                               content_type="application/json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_brewery_logo_url_is_fetched_and_replaced(self):
+        with mock.patch("taplist.labels.requests.get") as get:
+            get.return_value.__enter__.return_value = _fake_response(PNG, "image/png")
+            resp = self.post("/api/taps/2", {"beer": {"name": "Remote Logo", "brewery_logo_url": "https://x.test/logo.png",
+                                                      "display_art": "both"}})
+        beer = resp.get_json()["taps"][1]["beer"]
+        self.assertTrue(beer["brewery_logo"].startswith("/labels/"))
+        first = beer["brewery_logo"]
+        with mock.patch("taplist.labels.requests.get") as get:
+            get.return_value.__enter__.return_value = _fake_response(PNG, "image/png")
+            resp = self.client.put(f"/api/beers/{beer['id']}", data=json.dumps({"brewery_logo_url": "https://x.test/new.png"}),
+                                   content_type="application/json")
+        self.assertNotEqual(resp.get_json()["brewery_logo"], first)
+        self.assertEqual(self.client.get(first).status_code, 404)
+
+    def test_brewery_logo_finder(self):
+        payload = [
+            {"name": "Sierra Nevada Brewing Co", "city": "Chico", "state_province": "California", "country": "United States",
+             "website_url": "https://www.sierranevada.com/"},
+            {"name": "No Site Brewing", "website_url": None},
+        ]
+        with mock.patch("taplist.providers.requests.get") as get:
+            get.return_value.json.return_value = payload
+            data = self.client.get("/api/brewery-logo?q=sierra").get_json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["brewery"], "Sierra Nevada Brewing Co")
+        self.assertIn("domain=sierranevada.com", data["results"][0]["logo_url"])
+        self.assertEqual(data["results"][0]["place"], "Chico, California, United States")
+        with mock.patch("taplist.providers.requests.get", side_effect=OSError("offline")):
+            data = self.client.get("/api/brewery-logo?q=sierra").get_json()
+        self.assertEqual(data["results"], [])
+        self.assertIn("offline", data["error"])
+
+    def test_old_database_is_migrated(self):
+        import sqlite3
+        from taplist.db import Database
+        path = os.path.join(self.tmp.name, "old.db")
+        conn = sqlite3.connect(path)
+        conn.executescript(
+            "CREATE TABLE beers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, brewery TEXT NOT NULL DEFAULT '',"
+            " style TEXT NOT NULL DEFAULT '', abv REAL, ibu REAL, description TEXT NOT NULL DEFAULT '', label_file TEXT,"
+            " label_url TEXT, source TEXT NOT NULL DEFAULT 'manual', source_id TEXT, created_at REAL NOT NULL);"
+            "INSERT INTO beers(name, created_at) VALUES ('Vintage', 1);"
+        )
+        conn.commit(); conn.close()
+        db = Database(path)
+        beer = db.get_beer(1)
+        self.assertEqual(beer["display_art"], "label")
+        self.assertIsNone(beer["brewery_logo_url"])
+        db.close()
+
     def test_validation(self):
         self.assertEqual(self.post("/api/beers", {"name": ""}).status_code, 400)
         self.assertEqual(self.post("/api/taps/9", {"beer": {"name": "x"}}).status_code, 404)
@@ -202,7 +285,7 @@ class ProviderTests(unittest.TestCase):
                                 "beer_abv": 8.0, "beer_ibu": 100, "beer_description": "Big hoppy.",
                                 "beer_label": "https://img.test/pliny.jpg",
                             },
-                            "brewery": {"brewery_name": "Russian River"},
+                            "brewery": {"brewery_name": "Russian River", "brewery_label": "https://img.test/rr.png"},
                         }
                     ]
                 }
@@ -214,6 +297,7 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(results[0]["brewery"], "Russian River")
         self.assertEqual(results[0]["ibu"], 100)
         self.assertEqual(results[0]["source_id"], "7")
+        self.assertEqual(results[0]["brewery_logo_url"], "https://img.test/rr.png")
 
     def test_env_toggles(self):
         with mock.patch.dict(os.environ, {"TAPLIST_UNTAPPD_CLIENT_ID": "a", "TAPLIST_UNTAPPD_CLIENT_SECRET": "b"}):

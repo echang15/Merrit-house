@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS beers (
     description TEXT NOT NULL DEFAULT '',
     label_file  TEXT,
     label_url   TEXT,
+    brewery_logo_file TEXT,
+    brewery_logo_url  TEXT,
+    display_art TEXT NOT NULL DEFAULT 'label',
     source      TEXT NOT NULL DEFAULT 'manual',
     source_id   TEXT,
     created_at  REAL NOT NULL
@@ -40,7 +43,16 @@ CREATE INDEX IF NOT EXISTS idx_history_beer ON tap_history(beer_id);
 CREATE INDEX IF NOT EXISTS idx_beers_source ON beers(source, source_id);
 """
 
-BEER_FIELDS = ("name", "brewery", "style", "abv", "ibu", "description", "label_url", "source", "source_id")
+BEER_FIELDS = ("name", "brewery", "style", "abv", "ibu", "description", "label_url", "brewery_logo_url",
+               "display_art", "source", "source_id")
+DISPLAY_ART = ("label", "brewery", "both")
+
+# Columns added after the first release; applied to older databases on startup.
+MIGRATIONS = (
+    ("beers", "brewery_logo_file", "TEXT"),
+    ("beers", "brewery_logo_url", "TEXT"),
+    ("beers", "display_art", "TEXT NOT NULL DEFAULT 'label'"),
+)
 
 
 class Database:
@@ -55,12 +67,20 @@ class Database:
         self._conn.execute("PRAGMA journal_mode = WAL")
         with self._lock:
             self._conn.executescript(SCHEMA)
+            self._migrate()
             for n in range(1, tap_count + 1):
                 self._conn.execute("INSERT OR IGNORE INTO taps(number) VALUES (?)", (n,))
             self._conn.execute("INSERT OR IGNORE INTO meta(key, value) VALUES ('version', '1')")
             self._conn.commit()
 
     # -- helpers -----------------------------------------------------------
+
+    def _migrate(self):
+        for table, column, decl in MIGRATIONS:
+            cols = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
+            if column not in cols:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        self._conn.commit()
 
     def _bump(self):
         self._conn.execute("UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'version'")
@@ -84,6 +104,9 @@ class Database:
             "description": row["description"],
             "label_file": row["label_file"],
             "label_url": row["label_url"],
+            "brewery_logo_file": row["brewery_logo_file"],
+            "brewery_logo_url": row["brewery_logo_url"],
+            "display_art": row["display_art"] or "label",
             "source": row["source"],
             "source_id": row["source_id"],
             "created_at": row["created_at"],
@@ -109,11 +132,12 @@ class Database:
         clean = _clean_beer(data)
         with self._lock:
             cur = self._conn.execute(
-                "INSERT INTO beers(name, brewery, style, abv, ibu, description, label_url, source, source_id, created_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO beers(name, brewery, style, abv, ibu, description, label_url, brewery_logo_url,"
+                " display_art, source, source_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     clean["name"], clean["brewery"], clean["style"], clean["abv"], clean["ibu"],
-                    clean["description"], clean["label_url"], clean["source"], clean["source_id"], time.time(),
+                    clean["description"], clean["label_url"], clean["brewery_logo_url"], clean["display_art"],
+                    clean["source"], clean["source_id"], time.time(),
                 ),
             )
             self._bump()
@@ -131,9 +155,10 @@ class Database:
             self._conn.commit()
             return self.get_beer(beer_id)
 
-    def set_label_file(self, beer_id, filename):
+    def set_label_file(self, beer_id, filename, kind="label"):
+        column = "brewery_logo_file" if kind == "brewery" else "label_file"
         with self._lock:
-            self._conn.execute("UPDATE beers SET label_file = ? WHERE id = ?", (filename, beer_id))
+            self._conn.execute(f"UPDATE beers SET {column} = ? WHERE id = ?", (filename, beer_id))
             self._bump()
             self._conn.commit()
 
@@ -267,8 +292,13 @@ def _clean_beer(data, partial=False):
             out[key] = _num(val)
         elif key == "source_id":
             out[key] = str(val) if val not in (None, "") else None
-        elif key == "label_url":
+        elif key in ("label_url", "brewery_logo_url"):
             out[key] = (val or "").strip() or None
+        elif key == "display_art":
+            val = (val or "label").strip().lower()
+            if val not in DISPLAY_ART:
+                raise ValueError("display_art must be one of: " + ", ".join(DISPLAY_ART))
+            out[key] = val
         elif key == "source":
             out[key] = (val or "manual").strip() or "manual"
         else:

@@ -22,8 +22,13 @@ taps from the couch.
 - **Search** – type a beer, brewery or style. Results come from your own library
   first, then Open Food Facts (free, no key). Optional Untappd support if you
   have API credentials.
-- **Labels** – artwork is downloaded and cached on the Pi so the board works
-  offline. No label? A generated one is drawn in the beer's colour.
+- **Labels and brewery logos** – every beer has two artwork slots, the beer
+  label and the brewery logo. Pick which the board shows (label, logo, or the
+  label with the logo as a badge) from the tap menu. Artwork is downloaded and
+  cached on the Pi so the board works offline; no artwork at all and a
+  generated label is drawn in the beer's colour.
+- **Find a logo** – one tap looks the brewery up on Open Brewery DB and pulls
+  its site icon. Untappd results carry the brewery logo directly.
 - **Edit anything** – name, brewery, style, ABV, IBU, description, and upload a
   photo of the can from your phone.
 - **Archive** – kicked kegs land in the cellar with how many times they've been
@@ -134,9 +139,11 @@ tests/test_api.py         unit tests (python3 -m unittest discover -s tests)
 | `DELETE` | `/api/taps/<n>` | Kick the keg on tap *n* |
 | `GET` | `/api/archive` | Every beer not on tap, with pour history |
 | `POST` | `/api/beers` | Create a beer |
-| `PUT` | `/api/beers/<id>` | Edit a beer |
+| `PUT` | `/api/beers/<id>` | Edit a beer (`display_art`: `label`, `brewery` or `both`) |
 | `DELETE` | `/api/beers/<id>` | Remove a beer (not while it's on tap) |
-| `POST` | `/api/beers/<id>/label` | Upload label artwork (multipart field `label`) |
+| `POST` | `/api/beers/<id>/label` | Upload beer label artwork (multipart field `label`) |
+| `POST` | `/api/beers/<id>/brewery-logo` | Upload a brewery logo (multipart field `label`) |
+| `GET` | `/api/brewery-logo?q=` | Logo candidates for a brewery name |
 | `GET` | `/api/history` | Chronological tap log |
 
 Data lives in `data/taplist.db` and `data/labels/`; back those up and you have
