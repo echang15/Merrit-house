@@ -36,6 +36,12 @@ taps from the couch.
   photo of the can from your phone.
 - **Archive** – kicked kegs land in the cellar with how many times they've been
   on and for how long. Re-tap them in two touches.
+- **Scores** – rate any beer 1 to 5 stars from its tap menu or the editor. The
+  score shows on the board card, in the archive and on the stats page.
+- **Stats** – the bar-chart button opens a dashboard of everything that has
+  been on tap: kegs poured, beers tried, days on tap, average score, top
+  rated, most tapped, longest running, styles and breweries, kegs per month,
+  and the recent pour history.
 - **On-screen keyboard** – kiosk Chromium has no keyboard, so the app ships a
   touch one. Phones use their own; toggle with the keyboard icon.
 - **Kiosk-ready** – systemd service, Chromium kiosk launcher, autostart entry,
@@ -152,7 +158,7 @@ splash again is `SPLASH_RETURN_MS` at the top of `taplist/static/app.js`
 ```
 app.py                    entry point / CLI (--port, --demo)
 taplist/api.py            Flask app and JSON API
-taplist/db.py             SQLite: beers, taps, tap_history
+taplist/db.py             SQLite: beers (with scores), taps, tap_history, metrics
 taplist/providers.py      Open Food Facts + Untappd search
 taplist/labels.py         label download and upload storage
 taplist/static/           index.html, style.css, app.js (the UI)
@@ -176,6 +182,7 @@ tests/test_api.py         unit tests (python3 -m unittest discover -s tests)
 | `POST` | `/api/beers/<id>/brewery-logo` | Upload a brewery logo (multipart field `label`) |
 | `GET` | `/api/brewery-logo?q=` | Logo candidates for a brewery name |
 | `GET` | `/api/history` | Chronological tap log |
+| `GET` | `/api/metrics` | Aggregates for the stats page: totals, score counts, leaderboards, kegs per month, recent pours |
 
 Data lives in `data/taplist.db` and `data/labels/`; back those up and you have
 everything.

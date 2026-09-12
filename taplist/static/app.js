@@ -46,6 +46,29 @@
     return ts ? new Date(ts * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "";
   }
 
+  function fmtDays(seconds) {
+    const days = (seconds || 0) / 86400;
+    if (days < 1) return `${Math.max(1, Math.round(days * 24))}h`;
+    return `${Math.round(days)}d`;
+  }
+  function fmtMonth(ym) {
+    const [y, m] = ym.split("-").map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "short" });
+  }
+
+  // Five stars, `value` of them filled. Interactive when `opts.action` is given.
+  function starsHTML(value, opts = {}) {
+    const v = Number(value) || 0;
+    const btns = [1, 2, 3, 4, 5].map((n) => {
+      const on = n <= v ? " on" : "";
+      const star = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 16.9l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.8z"/></svg>`;
+      if (!opts.action) return `<span class="star${on}">${star}</span>`;
+      const attrs = Object.entries(opts.data || {}).map(([k, val]) => ` data-${k}="${esc(val)}"`).join("");
+      return `<button type="button" class="star${on}" data-action="${esc(opts.action)}" data-value="${n}"${attrs} aria-label="${n} of 5">${star}</button>`;
+    }).join("");
+    return `<span class="stars${opts.size ? " stars-" + opts.size : ""}" role="img" aria-label="${v ? v + " of 5" : "not scored"}">${btns}</span>`;
+  }
+
   async function api(url, opts = {}) {
     const init = { method: opts.method || "GET", headers: {} };
     if (opts.json !== undefined) {
@@ -155,6 +178,7 @@
             ${b.style ? html`<span class="pill pill-style">${esc(b.style)}</span>` : ""}
             ${b.abv != null ? html`<span class="pill"><b>${fmtAbv(b.abv)}</b> ABV</span>` : ""}
             ${b.ibu != null ? html`<span class="pill"><b>${fmtIbu(b.ibu)}</b> IBU</span>` : ""}
+            ${b.rating ? html`<span class="pill pill-score"><b>★ ${b.rating}</b></span>` : ""}
           </div>
           ${b.description ? html`<p class="tap-desc">${esc(b.description.split("\n")[0])}</p>` : ""}
           <div class="tap-since">${esc(ago(tap.tapped_at))}</div>
@@ -297,6 +321,13 @@
         </div>
         ${b.description ? html`<p style="color:var(--ink-2);font-size:14px;line-height:1.5;margin:0 0 14px;white-space:pre-line">${esc(b.description)}</p>` : ""}
         <div class="menu-section">
+          <div class="section-label">Your score</div>
+          <div class="score-row">
+            ${starsHTML(b.rating, { action: "rate", size: "lg", data: { id: b.id, tap: number } })}
+            <span class="score-text">${b.rating ? `${b.rating} / 5` : "Tap a star"}</span>
+          </div>
+        </div>
+        <div class="menu-section">
           <div class="section-label">Artwork on the board</div>
           <div class="seg">
             <button type="button" class="${b.display_art === "brewery" || b.display_art === "both" ? "" : "on"}" data-action="set-art" data-id="${b.id}" data-tap="${number}" data-value="label" ${b.label ? "" : "disabled"}>Beer label</button>
@@ -317,6 +348,17 @@
           </button>
         </div>
       </div>`, { compact: true });
+  }
+
+  // Tapping the current score again clears it.
+  async function rateBeer(beerId, value, current, after) {
+    const rating = Number(value) === Number(current) ? null : Number(value);
+    try {
+      await api(`/api/beers/${beerId}`, { method: "PUT", json: { rating } });
+      await loadState();
+      toast(rating ? `Scored ${rating} / 5` : "Score cleared");
+      if (after) after();
+    } catch (err) { toast(err.message, true); }
   }
 
   async function setArt(beerId, value, tapNumber) {
@@ -490,6 +532,13 @@
             <div class="field"><label>Style</label><input name="style" value="${esc(beer.style || "")}" placeholder="IPA, Stout, Lager…"></div>
             <div class="field"><label>ABV %</label><input name="abv" inputmode="decimal" value="${beer.abv != null ? esc(beer.abv) : ""}" placeholder="6.5"></div>
             <div class="field"><label>IBU</label><input name="ibu" inputmode="numeric" value="${beer.ibu != null ? esc(beer.ibu) : ""}" placeholder="45"></div>
+            <div class="field wide">
+              <label>Score</label>
+              <div class="score-row score-field">
+                ${[1, 2, 3, 4, 5].map((n) => html`<label class="star-opt"><input type="radio" name="rating" value="${n}" ${Number(beer.rating) === n ? "checked" : ""}><span class="star"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 16.9l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.8z"/></svg></span></label>`).join("")}
+                <button type="button" class="score-clear" data-action="clear-score">Clear</button>
+              </div>
+            </div>
             <div class="field wide"><label>Description</label><textarea name="description" placeholder="What does it taste like?">${esc(beer.description || "")}</textarea></div>
             <div class="field wide"><label>Show on the board</label>
               <div class="seg">
@@ -502,7 +551,9 @@
       </div>
       <div class="sheet-foot">
         ${beerId != null && !beer.on_tap && opts.fromLibrary ? html`<button class="btn btn-danger" type="button" data-action="delete-beer" data-id="${beerId}">Delete</button>` : ""}
-        ${beerId != null && targetTap && opts.editOnly ? html`<button class="btn btn-primary btn-lg btn-grow" type="button" data-action="save" data-tap="">Save changes</button>` : tapButtons}
+        ${beerId != null && targetTap && opts.editOnly
+          ? html`<button class="btn btn-primary btn-lg btn-grow" type="button" data-action="save" data-tap="">Save changes</button>`
+          : html`${beerId != null && !targetTap ? html`<button class="btn" type="button" data-action="save" data-tap="">Save</button>` : ""}${tapButtons}`}
       </div>`);
 
     const form = $("#editor");
@@ -581,6 +632,7 @@
       ibu: fd.get("ibu").trim(),
       description: fd.get("description").trim(),
       display_art: fd.get("display_art") || "label",
+      rating: fd.get("rating") ? Number(fd.get("rating")) : null,
     };
     if (!fields.name) { toast("Give the beer a name", true); form.querySelector('[name="name"]').focus(); return; }
     const slots = {
@@ -671,10 +723,135 @@
             <div class="archive-name">${esc(b.name)}</div>
             <div class="archive-sub">${esc(b.brewery || b.style || "")}</div>
             <div class="archive-when">${esc(when)}${b.times_tapped ? ` · ${b.times_tapped}× · ${days}d` : ""}</div>
+            ${b.rating ? `<div class="archive-score">${starsHTML(b.rating, { size: "sm" })}</div>` : ""}
           </div>
         </button>`;
       }).join("");
     } catch (err) { toast(err.message, true); }
+  }
+
+  // ---------- stats ----------
+
+  async function openStats() {
+    openSheet(html`
+      <div class="sheet-head">
+        <div style="flex:1;min-width:0">
+          <div class="sheet-sub">${esc(state.house || "On Tap")}</div>
+          <h2 class="sheet-title">Stats</h2>
+        </div>
+        ${closeBtn()}
+      </div>
+      <div class="sheet-body"><div id="stats" class="stats"><div class="spinner"></div></div></div>`);
+    try {
+      const m = await api("/api/metrics");
+      const el = $("#stats");
+      if (!el) return;
+      if (!m.kegs) {
+        el.outerHTML = html`<div class="empty-state"><strong>No pours yet</strong>Put a beer on tap and the numbers start here.</div>`;
+        return;
+      }
+      el.innerHTML = statsHTML(m);
+    } catch (err) { toast(err.message, true); }
+  }
+
+  function statsHTML(m) {
+    const tile = (value, label, sub) => html`<div class="stat"><div class="stat-value">${value}</div><div class="stat-label">${label}</div>${sub ? html`<div class="stat-sub">${sub}</div>` : ""}</div>`;
+    const since = m.first_tapped ? `since ${fmtDate(m.first_tapped)}` : "";
+    const avgDays = m.avg_seconds_per_keg / 86400;
+
+    // Horizontal bar list: one hue, value labelled at the end of each bar.
+    const bars = (rows, valueOf, labelOf, fmt, opts = {}) => {
+      const max = Math.max(...rows.map(valueOf), 1);
+      return html`<div class="bars">${rows.map((r) => {
+        const v = valueOf(r);
+        const key = opts.pick ? ++resultHTML.seq : null;
+        if (key) resultHTML.cache[key] = r;
+        const tag = key ? `button type="button" data-action="archive-pick" data-back="stats" data-key="${key}"` : "div";
+        return html`<${tag} class="bar-row" title="${esc(labelOf(r))}: ${esc(fmt(v))}">
+          <span class="bar-label">${labelOf(r)}</span>
+          <span class="bar-track"><span class="bar-fill" style="width:${(v / max) * 100}%"></span></span>
+          <span class="bar-value">${fmt(v)}</span>
+        </${key ? "button" : "div"}>`;
+      }).join("")}</div>`;
+    };
+    const nameOf = (b) => esc(b.name) + (b.on_tap ? ` <span class="on-tap-dot" title="On tap now"></span>` : "");
+
+    const maxMonth = Math.max(...m.by_month.map((x) => x.kegs), 1);
+    const months = html`<div class="columns" role="img" aria-label="Kegs tapped per month">${m.by_month.map((x) => html`
+      <div class="col" title="${esc(fmtMonth(x.month))}: ${x.kegs} keg${x.kegs === 1 ? "" : "s"}">
+        <span class="col-value">${x.kegs || ""}</span>
+        <span class="col-track"><span class="col-fill" style="height:${(x.kegs / maxMonth) * 100}%"></span></span>
+        <span class="col-label">${esc(fmtMonth(x.month))}</span>
+      </div>`).join("")}</div>`;
+
+    const ratingRows = [5, 4, 3, 2, 1].map((n) => ({ n, count: m.rating_counts[n] || 0 }));
+
+    return html`
+      <div class="kpis">
+        ${tile(m.kegs, "kegs tapped", since)}
+        ${tile(m.beers_poured, "different beers", `${m.beers_library} in the library`)}
+        ${tile(fmtDays(m.seconds_on_tap), "on tap in total", `${m.pouring} pouring now`)}
+        ${tile(avgDays >= 1 ? Math.round(avgDays) : fmtDays(m.avg_seconds_per_keg), avgDays >= 1 ? "days per keg" : "per keg", "average")}
+        ${tile(m.avg_rating != null ? m.avg_rating.toFixed(1) : "–", "average score", m.rated ? `${m.rated} scored` : "nothing scored yet")}
+      </div>
+
+      <div class="stats-grid">
+        <section class="stat-card">
+          <h3>Top rated</h3>
+          ${m.top_rated.length ? html`<div class="ranked">${m.top_rated.map((b) => {
+            const key = ++resultHTML.seq; resultHTML.cache[key] = b;
+            return html`<button type="button" class="ranked-row" data-action="archive-pick" data-back="stats" data-key="${key}">
+              <span class="ranked-art" data-art>${artHTML(b, { badge: false })}</span>
+              <span class="ranked-text"><b>${nameOf(b)}</b><small>${esc(b.brewery || b.style || "")} · ${b.times_tapped}× · ${fmtDays(b.seconds_on_tap)}</small></span>
+              ${starsHTML(b.rating, { size: "sm" })}
+            </button>`;
+          }).join("")}</div>` : html`<div class="hint">Score a beer from its tap menu and it shows up here.</div>`}
+        </section>
+
+        <section class="stat-card">
+          <h3>Scores</h3>
+          ${bars(ratingRows, (r) => r.count, (r) => `${r.n} ★`, (v) => String(v))}
+        </section>
+
+        <section class="stat-card">
+          <h3>Most tapped</h3>
+          ${bars(m.most_tapped, (b) => b.times_tapped, nameOf, (v) => `${v}×`, { pick: true })}
+        </section>
+
+        <section class="stat-card">
+          <h3>Longest on tap</h3>
+          ${bars(m.longest, (b) => b.seconds_on_tap, nameOf, fmtDays, { pick: true })}
+        </section>
+
+        <section class="stat-card">
+          <h3>Styles</h3>
+          ${bars(m.styles, (r) => r.kegs, (r) => esc(r.label), (v) => `${v} keg${v === 1 ? "" : "s"}`)}
+        </section>
+
+        <section class="stat-card">
+          <h3>Breweries</h3>
+          ${bars(m.breweries, (r) => r.kegs, (r) => esc(r.label), (v) => `${v} keg${v === 1 ? "" : "s"}`)}
+        </section>
+
+        <section class="stat-card stat-card-wide">
+          <h3>Kegs tapped by month</h3>
+          ${months}
+        </section>
+
+        <section class="stat-card stat-card-wide">
+          <h3>Recent pours</h3>
+          <div class="table-wrap"><table class="history">
+            <thead><tr><th>Beer</th><th>Tap</th><th>Tapped</th><th>On for</th><th>Score</th></tr></thead>
+            <tbody>${m.recent.map((h) => html`<tr>
+              <td><b>${esc(h.name)}</b><small>${esc(h.brewery || "")}</small></td>
+              <td>${h.tap_number}</td>
+              <td>${fmtDate(h.tapped_at)}</td>
+              <td>${fmtDays((h.untapped_at || m.now) - h.tapped_at)}${h.untapped_at ? "" : " · pouring"}</td>
+              <td>${h.rating ? `${h.rating} ★` : "–"}</td>
+            </tr>`).join("")}</tbody>
+          </table></div>
+        </section>
+      </div>`;
   }
 
   // ---------- actions ----------
@@ -684,6 +861,7 @@
     if (card) openTapMenu(Number(card.dataset.tap));
   });
   $("#btn-archive").addEventListener("click", openArchive);
+  $("#btn-stats").addEventListener("click", openStats);
   $("#btn-add").addEventListener("click", () => openSearch(null));
 
   sheet.addEventListener("click", (e) => {
@@ -703,7 +881,9 @@
       }
       case "archive-pick": {
         const b = resultHTML.cache[el.dataset.key];
-        openEditor({ ...b, beer_id: b.id }, null, { back: "archive", fromLibrary: true });
+        const onTap = state.taps.find((x) => x.beer && x.beer.id === b.id);
+        if (onTap) openTapMenu(onTap.number);
+        else openEditor({ ...b, beer_id: b.id }, null, { back: el.dataset.back || "archive", fromLibrary: true });
         break;
       }
       case "edit-beer": {
@@ -713,11 +893,23 @@
       }
       case "save": saveEditor(tap); break;
       case "set-art": setArt(Number(el.dataset.id), el.dataset.value, tap); break;
+      case "rate": {
+        const t = state.taps.find((x) => x.number === tap);
+        const current = t && t.beer ? t.beer.rating : null;
+        rateBeer(Number(el.dataset.id), el.dataset.value, current, () => openTapMenu(tap));
+        break;
+      }
+      case "clear-score": {
+        const form = $("#editor");
+        if (form) form.querySelectorAll('input[name="rating"]').forEach((i) => (i.checked = false));
+        break;
+      }
       case "find-logo": findLogo(); break;
       case "pick-logo": pickLogo(el.dataset.url); break;
       case "delete-beer": deleteBeer(Number(el.dataset.id)); break;
       default:
-        if (el.dataset.action.startsWith("search:")) openSearch(Number(el.dataset.action.slice(7)) || null);
+        if (el.dataset.action === "stats") openStats();
+        else if (el.dataset.action.startsWith("search:")) openSearch(Number(el.dataset.action.slice(7)) || null);
         else if (el.dataset.action === "archive") openArchive();
         else if (el.dataset.action.startsWith("tap:")) openTapMenu(Number(el.dataset.action.slice(4)));
     }

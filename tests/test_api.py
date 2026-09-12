@@ -77,6 +77,63 @@ class ApiTests(unittest.TestCase):
             self.assertNotIn("127.0.0.1", url)
         api_mod._lan_cache.update(at=0.0, addrs=[])
 
+    def test_score_a_beer(self):
+        resp = self.post("/api/beers", {"name": "Scored", "rating": 4})
+        beer = resp.get_json()
+        self.assertEqual(beer["rating"], 4)
+        put = lambda body: self.client.put(f"/api/beers/{beer['id']}", data=json.dumps(body),
+                                          content_type="application/json")
+        self.assertEqual(put({"rating": 5}).get_json()["rating"], 5)
+        self.assertIsNone(put({"rating": None}).get_json()["rating"])
+        self.assertEqual(put({"rating": "3"}).get_json()["rating"], 3)
+        for bad in (-1, 6, 2.5, "lots"):
+            self.assertEqual(put({"rating": bad}).status_code, 400, bad)
+        self.assertIsNone(put({"rating": 0}).get_json()["rating"])  # 0 clears, like null
+        self.assertEqual(put({"rating": 3}).get_json()["rating"], 3)
+        # Other edits leave the score alone.
+        self.assertEqual(put({"style": "Lager"}).get_json()["rating"], 3)
+        self.post("/api/taps/1", {"beer_id": beer["id"]})
+        self.assertEqual(self.client.get("/api/state").get_json()["taps"][0]["beer"]["rating"], 3)
+
+    def test_metrics(self):
+        empty = self.client.get("/api/metrics").get_json()
+        self.assertEqual(empty["kegs"], 0)
+        self.assertIsNone(empty["avg_rating"])
+        self.assertEqual(len(empty["by_month"]), 12)
+
+        pale = self.post("/api/taps/1", {"beer": {"name": "Pale", "brewery": "SN", "style": "Pale Ale", "rating": 4}})
+        pale_id = pale.get_json()["taps"][0]["beer"]["id"]
+        stout = self.post("/api/taps/2", {"beer": {"name": "Stout", "brewery": "G", "style": "Stout", "rating": 2}})
+        stout_id = stout.get_json()["taps"][1]["beer"]["id"]
+        self.client.delete("/api/taps/1")
+        self.post("/api/taps/1", {"beer_id": pale_id})       # Pale tapped twice
+        self.post("/api/beers", {"name": "Never tapped", "rating": 5})
+
+        m = self.client.get("/api/metrics").get_json()
+        self.assertEqual(m["kegs"], 3)
+        self.assertEqual(m["beers_poured"], 2)
+        self.assertEqual(m["beers_library"], 3)
+        self.assertEqual(m["pouring"], 2)
+        self.assertEqual(m["rated"], 3)
+        self.assertAlmostEqual(m["avg_rating"], 11 / 3)
+        self.assertEqual(m["rating_counts"], {"1": 0, "2": 1, "3": 0, "4": 1, "5": 1})
+        # Only beers that have actually been on tap make the leaderboards.
+        self.assertEqual([b["name"] for b in m["top_rated"]], ["Pale", "Stout"])
+        self.assertEqual([b["name"] for b in m["most_tapped"]], ["Pale", "Stout"])
+        self.assertEqual(m["most_tapped"][0]["times_tapped"], 2)
+        self.assertTrue(m["most_tapped"][0]["on_tap"])
+        self.assertEqual(m["styles"], [{"label": "Pale Ale", "kegs": 2}, {"label": "Stout", "kegs": 1}])
+        self.assertEqual(m["breweries"][0], {"label": "SN", "kegs": 2})
+        self.assertEqual(sum(x["kegs"] for x in m["by_month"]), 3)
+        self.assertEqual(m["by_month"][-1]["kegs"], 3)
+        self.assertEqual(len(m["recent"]), 3)
+        self.assertEqual(m["recent"][0]["name"], "Pale")
+        self.assertEqual(m["recent"][0]["rating"], 4)
+        self.assertGreater(m["seconds_on_tap"], 0)
+        self.assertEqual(m["top_rated"][0]["label"], None)  # with_label ran (key present)
+        self.assertNotIn("id", m["styles"][0])
+        self.assertEqual(stout_id, m["top_rated"][1]["id"])
+
     def test_state_has_empty_taps(self):
         data = self.client.get("/api/state").get_json()
         self.assertEqual(data["house"], "Test House")
@@ -257,6 +314,7 @@ class ApiTests(unittest.TestCase):
         beer = db.get_beer(1)
         self.assertEqual(beer["display_art"], "label")
         self.assertIsNone(beer["brewery_logo_url"])
+        self.assertIsNone(beer["rating"])
         db.close()
 
     def test_validation(self):

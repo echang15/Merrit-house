@@ -225,6 +225,14 @@ def create_app(data_dir=None, tap_count=None, providers=None, house_name=None):
     def api_history():
         return jsonify({"history": db.history()})
 
+    @app.get("/api/metrics")
+    def api_metrics():
+        data = db.metrics()
+        for key in ("top_rated", "most_tapped", "longest"):
+            data[key] = [with_label(b) for b in data[key]]
+        data["version"] = db.version()
+        return jsonify(data)
+
     @app.get("/api/beers/<int:beer_id>")
     def api_get_beer(beer_id):
         beer = db.get_beer(beer_id)
