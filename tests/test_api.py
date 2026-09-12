@@ -353,6 +353,52 @@ class ProviderTests(unittest.TestCase):
         self.assertIn("Ingredients: Water", r["description"])
         self.assertEqual(r["label_url"], "https://images.test/front.jpg")
 
+    def test_catalog_beer_parsing(self):
+        payload = {
+            "object": "list", "url": "/beer/search", "query": "sculpin", "has_more": False,
+            "data": [
+                {
+                    "id": "6a7119c6-92a2-40d2-b87a-2e4529c8577a", "object": "beer",
+                    "name": "Sculpin IPA", "style": "American-Style India Pale Ale",
+                    "description": "A great example of what got us into brewing.",
+                    "abv": 7, "ibu": 70,
+                    "brewer": {"id": "ab94", "object": "brewer", "name": "Ballast Point Brewing Company",
+                               "url": "https://www.ballastpoint.com/"},
+                },
+                {"id": "x", "object": "beer", "name": "  ", "brewer": {}},
+                {"id": "y", "object": "beer", "name": "Mystery", "abv": None, "ibu": "", "brewer": None},
+            ],
+        }
+        with mock.patch("taplist.providers.requests.get") as get:
+            get.return_value.json.return_value = payload
+            get.return_value.raise_for_status.return_value = None
+            results = prov.CatalogBeer("secret-key").search("sculpin", limit=5)
+        kwargs = get.call_args.kwargs
+        self.assertEqual(get.call_args.args[0], "https://api.catalog.beer/beer/search")
+        self.assertEqual(kwargs["params"], {"q": "sculpin", "count": 5})
+        self.assertEqual(kwargs["auth"], ("secret-key", ""))
+        self.assertEqual(kwargs["headers"]["Accept"], "application/json")
+        self.assertEqual(len(results), 2)
+        r = results[0]
+        self.assertEqual(r["name"], "Sculpin IPA")
+        self.assertEqual(r["brewery"], "Ballast Point Brewing Company")
+        self.assertEqual(r["style"], "American-Style India Pale Ale")
+        self.assertEqual(r["abv"], 7.0)
+        self.assertEqual(r["ibu"], 70.0)
+        self.assertEqual(r["source"], "catalogbeer")
+        self.assertEqual(r["source_id"], "6a7119c6-92a2-40d2-b87a-2e4529c8577a")
+        self.assertIsNone(r["label_url"])
+        self.assertIn("domain=ballastpoint.com", r["brewery_logo_url"])
+        self.assertEqual(results[1]["brewery"], "")
+        self.assertIsNone(results[1]["abv"])
+        self.assertIsNone(results[1]["brewery_logo_url"])
+        # API-level errors surface as a failure the search endpoint reports per provider.
+        with mock.patch("taplist.providers.requests.get") as get:
+            get.return_value.json.return_value = {"error": True, "error_msg": "Invalid API key"}
+            get.return_value.raise_for_status.return_value = None
+            with self.assertRaises(RuntimeError):
+                prov.CatalogBeer("bad").search("ipa")
+
     def test_untappd_parsing(self):
         payload = {
             "response": {
@@ -384,6 +430,14 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(names, ["untappd", "openfoodfacts"])
         with mock.patch.dict(os.environ, {"TAPLIST_DISABLE_OFF": "1"}, clear=True):
             self.assertEqual(prov.providers_from_env(), [])
+        with mock.patch.dict(os.environ, {"TAPLIST_CATALOG_BEER_KEY": " cb-key "}, clear=True):
+            enabled = prov.providers_from_env()
+        self.assertEqual([p.name for p in enabled], ["catalogbeer", "openfoodfacts"])
+        self.assertEqual(enabled[0].api_key, "cb-key")
+        with mock.patch.dict(os.environ, {"TAPLIST_CATALOG_BEER_KEY": "k", "TAPLIST_UNTAPPD_CLIENT_ID": "a",
+                                          "TAPLIST_UNTAPPD_CLIENT_SECRET": "b"}, clear=True):
+            names = [p.name for p in prov.providers_from_env()]
+        self.assertEqual(names, ["untappd", "catalogbeer", "openfoodfacts"])
 
 
 def _fake_response(body, content_type):

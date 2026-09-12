@@ -23,8 +23,9 @@ taps from the couch.
   style pill, ABV/IBU, description and how long it's been on tap. Live-updates
   when anything changes from another device.
 - **Search** – type a beer, brewery or style. Results come from your own library
-  first, then Open Food Facts (free, no key). Optional Untappd support if you
-  have API credentials.
+  first, then Open Food Facts (free, no key). Add a free Catalog.beer key for
+  clean style, ABV, IBU and description data, or Untappd credentials for
+  labels and descriptions.
 - **Labels and brewery logos** – every beer has two artwork slots, the beer
   label and the brewery logo. Pick which the board shows (label, logo, or the
   label with the logo as a badge) from the tap menu. Artwork is downloaded and
@@ -140,6 +141,7 @@ variables in your shell:
 | `TAPLIST_TAPS` | `3` | Number of taps |
 | `TAPLIST_DATA` | `./data` | Where the SQLite database and cached labels live |
 | `TAPLIST_PORT` | `8080` | Port to listen on |
+| `TAPLIST_CATALOG_BEER_KEY` | unset | Enables [Catalog.beer](https://catalog.beer/) search. Create a free account, then copy the API key from your Account page |
 | `TAPLIST_UNTAPPD_CLIENT_ID` / `TAPLIST_UNTAPPD_CLIENT_SECRET` | unset | Enables Untappd search (better descriptions and labels) |
 | `TAPLIST_DISABLE_OFF` | unset | Set to `1` to turn off Open Food Facts search |
 | `TAPLIST_SEARCH_TIMEOUT` | `8` | Seconds to wait for an online search |
@@ -159,7 +161,7 @@ splash again is `SPLASH_RETURN_MS` at the top of `taplist/static/app.js`
 app.py                    entry point / CLI (--port, --demo)
 taplist/api.py            Flask app and JSON API
 taplist/db.py             SQLite: beers (with scores), taps, tap_history, metrics
-taplist/providers.py      Open Food Facts + Untappd search
+taplist/providers.py      Open Food Facts, Catalog.beer and Untappd search
 taplist/labels.py         label download and upload storage
 taplist/static/           index.html, style.css, app.js (the UI)
 install/                  systemd unit, kiosk launcher, autostart, installer

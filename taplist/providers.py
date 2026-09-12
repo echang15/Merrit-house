@@ -7,6 +7,8 @@ shape used across the app:
 
 Providers:
   * Open Food Facts - free, no API key, decent label photos. Enabled by default.
+  * Catalog.beer   - open beer database with clean style/ABV/IBU data and
+                      descriptions; needs a free API key (TAPLIST_CATALOG_BEER_KEY).
   * Untappd        - excellent descriptions/labels but needs API credentials
                       (TAPLIST_UNTAPPD_CLIENT_ID / TAPLIST_UNTAPPD_CLIENT_SECRET).
 """
@@ -169,6 +171,72 @@ OPEN_BREWERY_DB = "https://api.openbrewerydb.org/v1/breweries/search"
 FAVICON_SERVICE = "https://www.google.com/s2/favicons?domain={host}&sz=256"
 
 
+def _site_icon(url):
+    """Best-effort logo for a brewery from its website: the 256px site icon."""
+    host = re.sub(r"^https?://", "", (url or "").strip()).split("/")[0].lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return FAVICON_SERVICE.format(host=host) if host else None
+
+
+class CatalogBeer:
+    """https://catalog.beer - an open, community-maintained beer database.
+
+    Every request needs an API key (free from the Account page on catalog.beer),
+    sent as the username of HTTP Basic auth with an empty password. Search hits
+    come back as full beer objects with the brewer nested, so one call is enough.
+    There is no artwork; the brewer's site icon stands in for a logo.
+    """
+
+    name = "catalogbeer"
+    label = "Catalog.beer"
+    URL = "https://api.catalog.beer/beer/search"
+
+    def __init__(self, api_key):
+        self.api_key = api_key
+
+    def search(self, query, limit=12):
+        resp = requests.get(
+            self.URL,
+            params={"q": query, "count": max(1, min(int(limit), 100))},
+            auth=(self.api_key, ""),
+            timeout=TIMEOUT,
+            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+        )
+        resp.raise_for_status()
+        payload = resp.json() or {}
+        if payload.get("error"):
+            raise RuntimeError(payload.get("error_msg") or "Catalog.beer returned an error")
+        results = []
+        for beer in payload.get("data") or []:
+            name = _clean_text(beer.get("name"))
+            if not name:
+                continue
+            brewer = beer.get("brewer") or {}
+            results.append(
+                {
+                    "name": name,
+                    "brewery": _clean_text(brewer.get("name")),
+                    "style": _clean_text(beer.get("style")),
+                    "abv": _num_or_none(beer.get("abv")),
+                    "ibu": _num_or_none(beer.get("ibu")),
+                    "description": _clean_text(beer.get("description")),
+                    "label_url": None,
+                    "brewery_logo_url": _site_icon(brewer.get("url")),
+                    "source": self.name,
+                    "source_id": str(beer.get("id") or ""),
+                }
+            )
+        return results
+
+
+def _num_or_none(value):
+    try:
+        return float(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
 def find_brewery_logos(query, limit=6):
     """Look a brewery up on Open Brewery DB and return logo candidates.
 
@@ -182,19 +250,15 @@ def find_brewery_logos(query, limit=6):
     out = []
     for b in resp.json() or []:
         site = (b.get("website_url") or "").strip()
-        if not site:
-            continue
-        host = re.sub(r"^https?://", "", site).split("/")[0].lower()
-        if host.startswith("www."):
-            host = host[4:]
-        if not host:
+        logo = _site_icon(site)
+        if not logo:
             continue
         place = ", ".join(x for x in (b.get("city"), b.get("state_province") or b.get("state"), b.get("country")) if x)
         out.append({
             "brewery": _clean_text(b.get("name")),
             "place": place,
             "website": site,
-            "logo_url": FAVICON_SERVICE.format(host=host),
+            "logo_url": logo,
         })
     return out
 
@@ -204,6 +268,9 @@ def providers_from_env():
     enabled = []
     if os.environ.get("TAPLIST_DISABLE_OFF", "").lower() not in ("1", "true", "yes"):
         enabled.append(OpenFoodFacts())
+    key = os.environ.get("TAPLIST_CATALOG_BEER_KEY", "").strip()
+    if key:
+        enabled.insert(0, CatalogBeer(key))
     cid = os.environ.get("TAPLIST_UNTAPPD_CLIENT_ID")
     secret = os.environ.get("TAPLIST_UNTAPPD_CLIENT_SECRET")
     if cid and secret:
