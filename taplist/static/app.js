@@ -22,6 +22,7 @@
   let state = { version: 0, taps: [], house: "", tap_count: 3 };
   let idleTimer = null;
   let splashTimer = null;
+  let searchTap = null; // which tap the search sheet pours onto
   let searchSeq = 0;
 
   // ---------- utils ----------
@@ -327,6 +328,19 @@
             <span class="score-text">${b.rating ? `${b.rating} / 5` : "Tap a star"}</span>
           </div>
         </div>
+        <div class="btn-stack">
+          <button class="btn btn-primary btn-lg" type="button" data-action="search" data-tap="${number}">
+            <svg viewBox="0 0 24 24"><path d="M4 12h10M10 6l6 6-6 6M18 5v14"/></svg> Change beer on tap ${number}
+          </button>
+          <div class="btn-row">
+            <button class="btn" type="button" data-action="edit-beer" data-id="${b.id}" data-tap="${number}">
+              <svg viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16zM13 7l4 4"/></svg> Edit details
+            </button>
+            <button class="btn btn-danger" type="button" data-action="kick" data-tap="${number}">
+              <svg viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13"/></svg> Keg kicked
+            </button>
+          </div>
+        </div>
         <div class="menu-section">
           <div class="section-label">Artwork on the board</div>
           <div class="seg">
@@ -335,17 +349,6 @@
             <button type="button" class="${b.display_art === "both" ? "on" : ""}" data-action="set-art" data-id="${b.id}" data-tap="${number}" data-value="both" ${b.label && b.brewery_logo ? "" : "disabled"}>Both</button>
           </div>
           ${!b.brewery_logo ? html`<div class="hint">No brewery logo yet — add one under <b>Edit details</b>.</div>` : ""}
-        </div>
-        <div class="btn-stack">
-          <button class="btn btn-primary btn-lg" type="button" data-action="search" data-tap="${number}">
-            <svg viewBox="0 0 24 24"><path d="M4 12h10M10 6l6 6-6 6M18 5v14"/></svg> Change beer on tap ${number}
-          </button>
-          <button class="btn" type="button" data-action="edit-beer" data-id="${b.id}" data-tap="${number}">
-            <svg viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16zM13 7l4 4"/></svg> Edit details
-          </button>
-          <button class="btn btn-danger" type="button" data-action="kick" data-tap="${number}">
-            <svg viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13"/></svg> Keg kicked — clear tap ${number}
-          </button>
         </div>
       </div>`, { compact: true });
   }
@@ -379,13 +382,20 @@
 
   // ---------- search ----------
 
+  function firstEmptyTap() {
+    const empty = state.taps.find((t) => !t.beer);
+    return empty ? empty.number : (state.taps[0] ? state.taps[0].number : 1);
+  }
+
   function openSearch(targetTap) {
+    searchTap = targetTap || firstEmptyTap();
     openSheet(html`
       <div class="sheet-head">
         <div style="flex:1;min-width:0">
-          <div class="sheet-sub">${targetTap ? `Choose a beer for tap ${targetTap}` : "Find a beer"}</div>
+          <div class="sheet-sub">Tap a beer to pour it</div>
           <h2 class="sheet-title">Search beers</h2>
         </div>
+
         <button class="icon-btn" type="button" data-action="toggle-osk" aria-label="Keyboard"><svg viewBox="0 0 24 24"><path d="M3 7h18v10H3zM7 11h1M11 11h1M15 11h1M7 14h10"/></svg></button>
         ${closeBtn()}
       </div>
@@ -395,9 +405,17 @@
           <input id="search-input" class="search-input" type="search" placeholder="Beer, brewery or style…" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
           <button class="search-clear" type="button" data-action="clear-search" aria-label="Clear"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
         </div>
-        <button class="btn" type="button" data-action="manual" data-tap="${targetTap || ""}">
+        <button class="btn" type="button" data-action="manual">
           <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> Manual
         </button>
+      </div>
+      <div class="tap-row">
+        <span class="tap-row-label">Put on</span>
+        <div class="seg tap-strip" aria-label="Put on tap">
+          ${state.taps.map((t) => html`<button type="button" class="${t.number === searchTap ? "on" : ""}" data-action="pick-tap" data-value="${t.number}" aria-label="Tap ${t.number}">
+            Tap ${t.number}${t.beer ? "" : html`<span class="tap-free" title="Empty"></span>`}
+          </button>`).join("")}
+        </div>
       </div>
       <div class="sheet-body"><div id="results" class="results"></div></div>`);
 
@@ -411,8 +429,9 @@
     });
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") { clearTimeout(timer); runSearch(input.value, targetTap); } });
     osk.attach(input, () => { clearTimeout(timer); runSearch(input.value, targetTap); });
-    input.focus({ preventScroll: true });
-    if (osk.enabled) osk.show(input);
+    // With the kiosk's on-screen keyboard the recent list would be hidden behind it,
+    // so leave the keyboard down until the field is tapped. Phones focus straight away.
+    if (!osk.enabled) input.focus({ preventScroll: true });
     showRecent(targetTap);
   }
 
@@ -427,7 +446,7 @@
         results.innerHTML = html`<div class="empty-state"><strong>Type to search</strong>Find a beer online, or tap <b>Manual</b> to add your own.</div>`;
         return;
       }
-      results.innerHTML = html`<div class="section-label">Recently on tap</div>` +
+      results.innerHTML = html`<div class="section-label">Recently on tap · tap one to pour it again</div>` +
         beers.slice(0, 12).map((b) => resultHTML({ ...b, beer_id: b.id, source: "library" }, targetTap)).join("");
     } catch (_) {
       results.innerHTML = "";
@@ -438,7 +457,8 @@
     const key = ++resultHTML.seq;
     resultHTML.cache[key] = r;
     const src = r.source === "library" ? "In your library" : (state.providers.find((p) => p.source === r.source) || {}).label || r.source;
-    return html`<button class="result" type="button" data-action="pick" data-key="${key}" data-tap="${targetTap || ""}">
+    // The row pours the beer straight onto the chosen tap; the pencil opens the editor first.
+    return html`<div class="result" role="button" tabindex="0" data-action="tap-result" data-key="${key}">
       <div class="result-art" data-art>${artHTML(r, { badge: false })}</div>
       <div class="result-text">
         <div class="result-name">${esc(r.name)}</div>
@@ -449,11 +469,30 @@
           <span class="source-tag ${r.source === "library" ? "library" : ""}">${r.on_tap ? "On tap now · " : ""}${esc(src)}</span>
         </div>
       </div>
-      <svg class="result-go" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
-    </button>`;
+      <button class="result-edit" type="button" data-action="pick" data-key="${key}" aria-label="Edit details first">
+        <svg viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16zM13 7l4 4"/></svg>
+      </button>
+    </div>`;
   }
   resultHTML.seq = 0;
   resultHTML.cache = {};
+
+  // One tap: put a search result straight on the chosen tap.
+  async function tapResult(key, rowEl) {
+    const r = resultHTML.cache[key];
+    if (!r || !searchTap) return;
+    const number = searchTap;
+    const payload = r.source === "library" ? { beer_id: r.beer_id != null ? r.beer_id : r.id } : { beer: r };
+    if (rowEl) rowEl.classList.add("busy");
+    try {
+      applyState(await api(`/api/taps/${number}`, { method: "POST", json: payload }));
+      closeSheet();
+      toast(`${r.name} is now on tap ${number}`);
+    } catch (err) {
+      if (rowEl) rowEl.classList.remove("busy");
+      toast(err.message, true);
+    }
+  }
 
   async function runSearch(q, targetTap) {
     const results = $("#results");
@@ -871,12 +910,19 @@
     switch (el.dataset.action) {
       case "search": openSearch(tap); break;
       case "kick": kickTap(tap); break;
-      case "manual": openEditor({ source: "manual" }, tap, { back: "search:" + (tap || "") }); break;
+      case "manual": openEditor({ source: "manual" }, tap || searchTap, { back: "search:" + (tap || searchTap || "") }); break;
+      case "tap-result": tapResult(el.dataset.key, el); break;
+      case "pick-tap": {
+        searchTap = Number(el.dataset.value);
+        el.parentElement.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === el));
+        break;
+      }
       case "clear-search": { const i = $("#search-input"); i.value = ""; i.dispatchEvent(new Event("input")); i.focus(); break; }
       case "toggle-osk": osk.toggle(); break;
       case "pick": {
         const r = resultHTML.cache[el.dataset.key];
-        openEditor(r, tap, { back: "search:" + (tap || ""), fromLibrary: r.source === "library" });
+        const target = tap || searchTap;
+        openEditor(r, target, { back: "search:" + (target || ""), fromLibrary: r.source === "library" });
         break;
       }
       case "archive-pick": {

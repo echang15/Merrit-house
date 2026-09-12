@@ -25,7 +25,8 @@ taps from the couch.
 - **Search** – type a beer, brewery or style. Results come from your own library
   first, then Open Food Facts (free, no key). Add a free Catalog.beer key for
   clean style, ABV, IBU and description data, or Untappd credentials for
-  labels and descriptions.
+  labels and descriptions. Tapping a result pours it straight onto the chosen
+  tap; the pencil on a row opens the editor first if you want to tweak it.
 - **Labels and brewery logos** – every beer has two artwork slots, the beer
   label and the brewery logo. Pick which the board shows (label, logo, or the
   label with the logo as a badge) from the tap menu. Artwork is downloaded and
@@ -36,7 +37,8 @@ taps from the couch.
 - **Edit anything** – name, brewery, style, ABV, IBU, description, and upload a
   photo of the can from your phone.
 - **Archive** – kicked kegs land in the cellar with how many times they've been
-  on and for how long. Re-tap them in two touches.
+  on and for how long. They sit at the top of every search, so re-tapping a
+  favourite is three touches: the tap card, *Change beer*, the beer.
 - **Scores** – rate any beer 1 to 5 stars from its tap menu or the editor. The
   score shows on the board card, in the archive and on the stats page.
 - **Stats** – the bar-chart button opens a dashboard of everything that has

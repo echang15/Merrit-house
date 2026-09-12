@@ -382,7 +382,19 @@ html.osk-open .sheet-foot { display: none; }
 .result-sub { color: var(--ink-2); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .result-tags { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
 .result-tags .pill { padding: 2px 8px; font-size: 11px; }
-.result-go { color: var(--ink-3); width: 24px; height: 24px; }
+.result-edit {
+  width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--card-border);
+  background: transparent; color: var(--ink-3); display: inline-flex; align-items: center; justify-content: center;
+}
+.result-edit svg { width: 20px; height: 20px; }
+.result-edit:active { background: var(--card-strong); color: var(--ink); }
+.result.busy { opacity: 0.5; pointer-events: none; }
+.result[role="button"] { cursor: pointer; }
+.tap-row { display: flex; align-items: center; gap: 10px; padding: 0 18px 10px; flex: none; }
+.tap-row-label { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3); flex: none; }
+.tap-strip { flex: 1; }
+.tap-strip > button { height: 36px; font-size: 13px; }
+.tap-free { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); margin-left: 6px; }
 .source-tag { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
 .source-tag.library { color: var(--ok); }
 
