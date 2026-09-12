@@ -17,6 +17,7 @@ import argparse
 import logging
 import os
 import sys
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -64,6 +65,27 @@ def seed_demo(app):
         db.set_tap(number, beer["id"])
 
 
+ARTWORK_RETRY_SECONDS = 10 * 60
+
+
+def start_artwork_retry(app, interval=ARTWORK_RETRY_SECONDS):
+    """Keep trying to cache artwork that couldn't be downloaded when it was tapped."""
+    retry = app.extensions["taplist"]["retry_artwork"]
+    log = logging.getLogger("taplist.artwork")
+
+    def loop():
+        while True:
+            try:
+                fetched = retry()
+                if fetched:
+                    log.info("cached %d image(s) that were missing", fetched)
+            except Exception as exc:  # never let the sweeper die
+                log.warning("artwork retry failed: %s", exc)
+            threading.Event().wait(interval)
+
+    threading.Thread(target=loop, name="artwork-retry", daemon=True).start()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Merritt House tap list")
     parser.add_argument("--host", default=os.environ.get("TAPLIST_HOST", "0.0.0.0"))
@@ -78,6 +100,7 @@ def main(argv=None):
     app = create_app()
     if args.demo:
         seed_demo(app)
+    start_artwork_retry(app)
     app.run(host=args.host, port=args.port, debug=args.debug, threaded=True, use_reloader=False)
 
 

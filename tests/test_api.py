@@ -270,6 +270,65 @@ class ApiTests(unittest.TestCase):
                                content_type="application/json")
         self.assertEqual(resp.status_code, 400)
 
+    def test_artwork_refresh_and_remove(self):
+        with mock.patch("taplist.labels.requests.get") as get:
+            get.return_value.__enter__.return_value = _fake_response(PNG, "image/png")
+            resp = self.post("/api/taps/1", {"beer": self.provider.results[0]})
+        beer = resp.get_json()["taps"][0]["beer"]
+        self.assertTrue(beer["label_cached"])
+        self.assertTrue(beer["label"].startswith("/labels/"))
+        first_file = beer["label"]
+        served = self.client.get(first_file)
+        self.assertEqual(served.status_code, 200)
+        self.assertIn("immutable", served.headers["Cache-Control"])
+        # Refresh downloads again and swaps in a new file.
+        with mock.patch("taplist.labels.requests.get") as get:
+            get.return_value.__enter__.return_value = _fake_response(PNG, "image/png")
+            resp = self.client.post(f"/api/beers/{beer['id']}/art/label/refresh")
+        self.assertEqual(resp.status_code, 200)
+        refreshed = resp.get_json()
+        self.assertTrue(refreshed["label_cached"])
+        self.assertNotEqual(refreshed["label"], first_file)
+        self.assertEqual(self.client.get(first_file).status_code, 404)
+        # A failed download keeps the old copy.
+        with mock.patch("taplist.labels.requests.get", side_effect=OSError("offline")):
+            resp = self.client.post(f"/api/beers/{beer['id']}/art/label/refresh")
+        self.assertEqual(resp.status_code, 502)
+        self.assertEqual(self.client.get(refreshed["label"]).status_code, 200)
+        # Uploaded artwork has no source to refresh from.
+        self.assertEqual(self.client.post(f"/api/beers/{beer['id']}/art/brewery/refresh").status_code, 400)
+        self.assertEqual(self.client.post(f"/api/beers/{beer['id']}/art/sideways/refresh").status_code, 404)
+        # Remove deletes the file and forgets the address.
+        resp = self.client.delete(f"/api/beers/{beer['id']}/art/label")
+        self.assertEqual(resp.status_code, 200)
+        removed = resp.get_json()
+        self.assertIsNone(removed["label"])
+        self.assertIsNone(removed["label_url"])
+        self.assertFalse(removed["label_cached"])
+        self.assertEqual(self.client.get(refreshed["label"]).status_code, 404)
+
+    def test_missing_artwork_is_retried_in_the_background(self):
+        retry = self.app.extensions["taplist"]["retry_artwork"]
+        with mock.patch("taplist.labels.requests.get", side_effect=OSError("offline")):
+            resp = self.post("/api/taps/1", {"beer": self.provider.results[0]})
+        beer = resp.get_json()["taps"][0]["beer"]
+        self.assertFalse(beer["label_cached"])
+        self.assertEqual(beer["label"], "https://example.test/hazy.png")  # falls back to the web
+        # Still offline: the sweeper fails once and backs off.
+        with mock.patch("taplist.labels.requests.get", side_effect=OSError("offline")) as get:
+            self.assertEqual(retry(now=1000), 0)
+            self.assertEqual(get.call_count, 1)
+            self.assertEqual(retry(now=1001), 0)   # too soon, not retried
+            self.assertEqual(get.call_count, 1)
+        # Back online after the delay: cached, and the board serves the local copy.
+        with mock.patch("taplist.labels.requests.get") as get:
+            get.return_value.__enter__.return_value = _fake_response(PNG, "image/png")
+            self.assertEqual(retry(now=1000 + 11 * 60), 1)
+        beer = self.client.get("/api/state").get_json()["taps"][0]["beer"]
+        self.assertTrue(beer["label_cached"])
+        self.assertTrue(beer["label"].startswith("/labels/"))
+        self.assertEqual(retry(now=1000 + 12 * 60), 0)  # nothing left to do
+
     def test_brewery_logo_url_is_fetched_and_replaced(self):
         with mock.patch("taplist.labels.requests.get") as get:
             get.return_value.__enter__.return_value = _fake_response(PNG, "image/png")

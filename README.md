@@ -34,8 +34,12 @@ taps from the couch.
 - **Labels and brewery logos** – every beer has two artwork slots, the beer
   label and the brewery logo. Pick which the board shows (label, logo, or the
   label with the logo as a badge) from the tap menu. Artwork is downloaded and
-  cached on the Pi so the board works offline; no artwork at all and a
-  generated label is drawn in the beer's colour.
+  cached on the Pi the moment a beer is tapped, so the board works offline and
+  re-tapping a beer never fetches again. A download that fails (offline, slow
+  host) is retried in the background until it lands. The editor shows whether
+  each image is saved locally, with **Refresh** to download it again from its
+  source and **Remove** to delete it. No artwork at all and a generated label
+  is drawn in the beer's colour.
 - **Find a logo** – one tap looks the brewery up on Open Brewery DB and pulls
   its site icon. Untappd results carry the brewery logo directly.
 - **Edit anything** – name, brewery, style, ABV, IBU, description, and upload a
@@ -193,6 +197,8 @@ tests/test_api.py         unit tests (python3 -m unittest discover -s tests)
 | `DELETE` | `/api/beers/<id>` | Remove a beer (not while it's on tap) |
 | `POST` | `/api/beers/<id>/label` | Upload beer label artwork (multipart field `label`) |
 | `POST` | `/api/beers/<id>/brewery-logo` | Upload a brewery logo (multipart field `label`) |
+| `POST` | `/api/beers/<id>/art/<label\|brewery>/refresh` | Download that artwork again from its source URL |
+| `DELETE` | `/api/beers/<id>/art/<label\|brewery>` | Delete that artwork (cached file and URL) |
 | `GET` | `/api/brewery-logo?q=` | Logo candidates for a brewery name |
 | `GET` | `/api/history` | Chronological tap log |
 | `GET` | `/api/metrics` | Aggregates for the stats page: totals, score counts, leaderboards, kegs per month, recent pours |

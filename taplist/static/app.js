@@ -555,6 +555,45 @@
 
   // ---------- editor ----------
 
+  // Status line and refresh/remove tools for one artwork slot in the editor.
+  function artToolsHTML(beer, kind, saved) {
+    const url = beer[kind === "label" ? "label_url" : "brewery_logo_url"];
+    const cached = beer[kind === "label" ? "label_cached" : "brewery_logo_cached"];
+    const has = cached || url;
+    let status = "";
+    if (cached) status = url ? "Saved on the Pi" : "Uploaded · saved on the Pi";
+    else if (url) status = "Not saved yet · loads from the web, will retry";
+    if (!saved || !has) return status ? html`<div class="art-status">${status}</div>` : "";
+    return html`
+      <div class="art-status">${status}</div>
+      <div class="btn-row art-tools">
+        ${url ? html`<button class="btn" type="button" data-action="refresh-art" data-kind="${kind}"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg> Refresh</button>` : ""}
+        <button class="btn btn-danger" type="button" data-action="remove-art" data-kind="${kind}"><svg viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13"/></svg> Remove</button>
+      </div>`;
+  }
+
+  // Re-download or delete a saved beer's artwork straight from the editor.
+  async function editArt(kind, action) {
+    const form = $("#editor");
+    if (!form || form._beerId == null) return;
+    const slot = form.querySelector(`.art-slot[data-slot="${kind}"]`);
+    slot.classList.add("busy");
+    try {
+      const updated = action === "refresh"
+        ? await api(`/api/beers/${form._beerId}/art/${kind}/refresh`, { method: "POST" })
+        : await api(`/api/beers/${form._beerId}/art/${kind}`, { method: "DELETE" });
+      form._beer = { ...form._beer, ...updated };
+      const src = kind === "label" ? updated.label : updated.brewery_logo;
+      slot.querySelector("[data-art]").innerHTML = artHTML(updated, { src: src || null, kind });
+      slot.querySelector('input[type="url"]').value = (kind === "label" ? updated.label_url : updated.brewery_logo_url) || "";
+      slot.querySelector('input[type="file"]').value = "";
+      slot.querySelector(".art-tools-wrap").innerHTML = artToolsHTML(updated, kind, true);
+      toast(action === "refresh" ? "Image downloaded again" : "Image removed");
+      await loadState();
+    } catch (err) { toast(err.message, true); }
+    slot.classList.remove("busy");
+  }
+
   function openEditor(beer, targetTap, opts = {}) {
     const isLibrary = beer.beer_id != null || (beer.id != null && beer.source !== undefined && beer.source !== "openfoodfacts" && beer.source !== "untappd" && opts.fromLibrary);
     const beerId = beer.beer_id != null ? beer.beer_id : (opts.fromLibrary ? beer.id : null);
@@ -583,6 +622,7 @@
                   <input type="file" name="file_label" accept="image/*">
                 </label>
                 <input class="url-input" type="url" name="label_url" value="${esc(beer.label_url || "")}" placeholder="…or paste image URL">
+                <div class="art-tools-wrap">${artToolsHTML(beer, "label", beerId != null)}</div>
               </div>
             </div>
             <div class="art-slot" data-slot="brewery">
@@ -600,6 +640,7 @@
                 </div>
                 <input class="url-input" type="url" name="brewery_logo_url" value="${esc(beer.brewery_logo_url || "")}" placeholder="…or paste logo URL">
                 <div id="logo-candidates" class="logo-candidates" hidden></div>
+                <div class="art-tools-wrap">${artToolsHTML(beer, "brewery", beerId != null)}</div>
               </div>
             </div>
           </div>
@@ -1025,6 +1066,8 @@
         break;
       }
       case "find-logo": findLogo(); break;
+      case "refresh-art": editArt(el.dataset.kind, "refresh"); break;
+      case "remove-art": editArt(el.dataset.kind, "remove"); break;
       case "pick-logo": pickLogo(el.dataset.url); break;
       case "delete-beer": deleteBeer(Number(el.dataset.id)); break;
       default:

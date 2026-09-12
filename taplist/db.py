@@ -186,6 +186,15 @@ class Database:
             ).fetchall()
             return [self._beer_dict(r) for r in rows]
 
+    def beers_missing_artwork(self):
+        """Beers with a remote artwork URL that hasn't been saved locally yet."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM beers WHERE (label_url IS NOT NULL AND label_file IS NULL)"
+                " OR (brewery_logo_url IS NOT NULL AND brewery_logo_file IS NULL) ORDER BY id"
+            ).fetchall()
+            return [self._beer_dict(r) for r in rows]
+
     # -- taps --------------------------------------------------------------
 
     def taps(self):

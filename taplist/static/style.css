@@ -467,6 +467,11 @@ html.osk-open .sheet-foot { display: none; }
 .editor-art-logo { aspect-ratio: 1.35; }
 .editor-art-logo img { padding: 10px; }
 .editor-art-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--ink-3); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.art-status { font-size: 11px; color: var(--ink-3); margin: 8px 4px 0; letter-spacing: 0.04em; }
+.art-tools { margin-top: 6px; }
+.art-tools .btn { height: 38px; font-size: 12px; }
+.art-tools .btn svg { width: 16px; height: 16px; }
+.art-slot.busy { opacity: 0.55; pointer-events: none; }
 .btn-row { display: flex; gap: 6px; }
 .btn-row .btn { flex: 1; padding: 0 8px; }
 .url-input { height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--card-border); background: rgba(0, 0, 0, 0.35); font-size: 13px; width: 100%; outline: none; }

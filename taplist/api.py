@@ -73,6 +73,9 @@ def create_app(data_dir=None, tap_count=None, providers=None, house_name=None):
         beer["brewery_logo"] = (
             f"/labels/{beer['brewery_logo_file']}" if beer.get("brewery_logo_file") else beer.get("brewery_logo_url")
         )
+        # Whether each slot is served from local storage (works offline) or still points at the web.
+        beer["label_cached"] = bool(beer.get("label_file"))
+        beer["brewery_logo_cached"] = bool(beer.get("brewery_logo_file"))
         return beer
 
     ART_KINDS = {"label": ("label_url", "label_file"), "brewery": ("brewery_logo_url", "brewery_logo_file")}
@@ -103,6 +106,56 @@ def create_app(data_dir=None, tap_count=None, providers=None, house_name=None):
         db.set_label_file(beer_id, None, kind=kind)
         beer = db.update_beer(beer_id, {url_key: url})
         return ensure_label(beer, kinds=(kind,))
+
+    def refresh_art(beer_id, kind):
+        """Re-download one artwork slot from its source URL, replacing the cached file."""
+        url_key, file_key = ART_KINDS[kind]
+        beer = db.get_beer(beer_id)
+        if not beer.get(url_key):
+            abort(400, "this artwork was uploaded, there is no web address to refresh it from")
+        name = labels.fetch(beer_id, beer[url_key])
+        if not name:
+            abort(502, "could not download the image right now; the old copy is kept")
+        labels.remove(beer.get(file_key))
+        db.set_label_file(beer_id, name, kind=kind)
+        return db.get_beer(beer_id)
+
+    def remove_art(beer_id, kind):
+        """Delete one artwork slot: the cached file and the address it came from."""
+        url_key, file_key = ART_KINDS[kind]
+        beer = db.get_beer(beer_id)
+        labels.remove(beer.get(file_key))
+        db.set_label_file(beer_id, None, kind=kind)
+        return db.update_beer(beer_id, {url_key: None})
+
+    # Artwork whose download failed (offline, slow host) is retried in the
+    # background with a growing delay, so every image ends up cached locally.
+    retry_after = app.extensions["taplist"]["retry_after"] = {}
+    RETRY_MIN, RETRY_MAX = 10 * 60, 24 * 60 * 60
+
+    def retry_missing_artwork(limit=20, now=None):
+        now = time.time() if now is None else now
+        fetched = 0
+        for beer in db.beers_missing_artwork():
+            for kind, (url_key, file_key) in ART_KINDS.items():
+                if beer.get(file_key) or not beer.get(url_key):
+                    continue
+                key = (beer["id"], kind)
+                due, delay = retry_after.get(key, (0, RETRY_MIN))
+                if now < due:
+                    continue
+                name = labels.fetch(beer["id"], beer[url_key])
+                if name:
+                    db.set_label_file(beer["id"], name, kind=kind)
+                    retry_after.pop(key, None)
+                    fetched += 1
+                else:
+                    retry_after[key] = (now + delay, min(delay * 2, RETRY_MAX))
+                if fetched >= limit:
+                    return fetched
+        return fetched
+
+    app.extensions["taplist"]["retry_artwork"] = retry_missing_artwork
 
     def lan_urls():
         """Addresses phones on the same network can open this app at."""
@@ -160,8 +213,12 @@ def create_app(data_dir=None, tap_count=None, providers=None, house_name=None):
 
     @app.route("/labels/<path:filename>")
     def label_file(filename):
+        # Cached files get a fresh unique name whenever they change, so browsers
+        # (the kiosk especially) can keep them for a long time without asking.
         resp = send_from_directory(labels.directory, filename)
-        resp.cache_control.max_age = 60 * 60 * 24 * 30
+        resp.cache_control.public = True
+        resp.cache_control.max_age = 60 * 60 * 24 * 365
+        resp.cache_control.immutable = True
         return resp
 
     # -- state ---------------------------------------------------------------
@@ -300,6 +357,18 @@ def create_app(data_dir=None, tap_count=None, providers=None, house_name=None):
             abort(400, str(exc))
         return jsonify(with_label(beer))
 
+    @app.post("/api/beers/<int:beer_id>/art/<kind>/refresh")
+    def api_refresh_art(beer_id, kind):
+        if kind not in ART_KINDS or db.get_beer(beer_id) is None:
+            abort(404)
+        return jsonify(with_label(refresh_art(beer_id, kind)))
+
+    @app.delete("/api/beers/<int:beer_id>/art/<kind>")
+    def api_remove_art(beer_id, kind):
+        if kind not in ART_KINDS or db.get_beer(beer_id) is None:
+            abort(404)
+        return jsonify(with_label(remove_art(beer_id, kind)))
+
     @app.get("/api/brewery-logo")
     def api_brewery_logo():
         q = (request.args.get("q") or "").strip()
@@ -317,6 +386,7 @@ def create_app(data_dir=None, tap_count=None, providers=None, house_name=None):
     @app.errorhandler(404)
     @app.errorhandler(409)
     @app.errorhandler(413)
+    @app.errorhandler(502)
     def json_error(err):
         return jsonify({"error": getattr(err, "description", str(err))}), err.code
 
